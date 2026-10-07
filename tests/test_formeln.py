@@ -139,3 +139,41 @@ class TestZuordnungFuerFormelsatz:
     def test_andere_seite_oder_falscher_code(self):
         r = self.reparatur()
         assert r.zuordnung_fuer(6) is None and r.zuordnung_fuer(5)(0, ord("E")) is None
+
+    def test_trennstrich_in_neu_gesetzter_formelzeile(self):
+        """Regression: Setzt der Formelsatz eine Zeile neu, steht ein \x02 darin als Platzhalter. In einer Textschrift
+        ist das die weiche Trennung ("zeit\x02lich"); vorher wurde der Platzhalter direkt mit der Zuordnung "-"
+        aufgeloest und es blieb "zeit-lich" (gemessen: tausende Woerter in drei formelreichen Buechern)."""
+        from collections import Counter
+        import formelsatz
+        r = F.Reparatur.__new__(F.Reparatur)
+        sz = F._SeitenZeichen()
+        sz.codes = [ord(c) for c in "zeit"] + [2] + [ord(c) for c in "lich"]
+        sz.fonts = [1] * len(sz.codes)
+        r._seiten, r._zeichen = [0], {0: sz}
+        r.fontnamen = ["ABCDEF+MT2SYT2", "ABCDEF+TimesNewRoman"]
+        r.zuordnung = {(1, 2): "-"}
+        r.ersetzt, r.haeufigkeit = 0, Counter()
+        zeile = "zeit" + formelsatz.platzhalter(4, 2) + "lich"
+        korrektur = {0: zeile, **{k: "" for k in range(1, len(sz.codes))}}
+        neu = r.aufbauen(["zeit\ufffelich"], korrekturen={0: korrektur})[0]
+        assert "-" not in neu and neu.replace("\ufffe", "") == "zeitlich"
+
+
+def test_pdfium_trennstrich_in_tex_schrift_bleibt_weich(tmp_path):
+    """Regression: Code 2 ist auch PDFiums Markierung einer Silbentrennung (FPDFText_IsHyphen), nicht nur ein Zeichen
+    der Schrift (MathTime: Malpunkt). In TeX-Textschriften (SFRM, CMR), die hier als Formelschrift gelten, fand der
+    Formvergleich dafuer "-" und es blieb "zeit-lich" (gemessen: tausende Woerter in drei Buechern)."""
+    pdf = erzeuge_pdf(tmp_path / "t.pdf", ["Die Konstruk-\ntion hält das Lager zeitlich konstant und so weiter."])
+    roh = p._pdfium_seiten(pdf)
+    assert "Konstruk\ufffetion" in roh[0]                     # so liefert es PDFium
+    rep = F.Reparatur(pdf)
+    try:
+        rep.analysieren(roh, alle_seiten=True)
+        rep.fontnamen = ["SFRM1000"] * len(rep.fontnamen)       # wie eine TeX-Textschrift
+        for font in range(len(rep.fontnamen)):
+            rep.zuordnung[(font, 2)] = "-"                      # so entscheidet der Formvergleich fuer die Glyphe
+        neu = rep.aufbauen(roh)
+    finally:
+        rep.schliessen()
+    assert "Konstruk-tion" not in neu[0] and "Konstruk\ufffetion" in neu[0]

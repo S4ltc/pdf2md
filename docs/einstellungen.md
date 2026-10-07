@@ -2,7 +2,7 @@
 
 Erzeugt aus `einstellungen.py` mit `python werkzeuge/einstellungen_liste.py`. Im Fenster stehen die Texte als Tooltip, gespeichert werden Abweichungen in `Einstellungen.json` neben dem Programm.
 
-89 Einstellungen, davon 15 normal und 74 für Experten (an 58 Büchern gemessen).
+93 Einstellungen, davon 17 normal und 76 für Experten (an 58 Büchern gemessen).
 
 ## Normal
 
@@ -18,6 +18,8 @@ Erzeugt aus `einstellungen.py` mit `python werkzeuge/einstellungen_liste.py`. Im
 | Einstellung | Schlüssel | Standard | Bereich | Tooltip |
 |---|---|---|---|---|
 | Überschriften aus Lesezeichen | `pdf2md.UEBERSCHRIFTEN_AUS_LESEZEICHEN` | an | an/aus | Macht aus den Lesezeichen des PDFs Markdown-Überschriften. Ausschalten, wenn die Lesezeichen eines PDFs unbrauchbar sind. |
+| Überschriften aus der Schriftgröße | `pdf2md.UEBERSCHRIFTEN_AUS_SCHRIFT` | an | an/aus | Hat ein PDF keine Lesezeichen, werden deutlich größere Zeilen und fette Abschnittsnummern („2.4 …“) zu Überschriften. Ausschalten, wenn dabei zu viele falsche Überschriften entstehen. |
+| Fett und kursiv übernehmen | `pdf2md.HERVORHEBUNGEN` | an | an/aus | Übernimmt fette und kursive Wortgruppen als **fett** und *kursiv*, kursive Formelzeichen ausgenommen. Ausschalten, wenn reiner Text ohne Markdown-Betonung gebraucht wird. |
 | Spaltenreihenfolge korrigieren | `pdf2md.SPALTENREIHENFOLGE` | an | an/aus | Bringt zweispaltige Seiten in Lesereihenfolge, wenn das PDF die rechte Spalte vor der linken liefert. Nur zur Fehlersuche ausschalten. |
 | Zeichenfehler korrigieren | `pdf2md.ZEICHEN_KORRIGIEREN` | an | an/aus | Korrigiert getrennte Umlaute wie „fü r“, Symbol- und Wingdings-Zeichen sowie Texte in falscher Kodierung. Nur zur Fehlersuche ausschalten. |
 
@@ -79,6 +81,8 @@ Erzeugt aus `einstellungen.py` mit `python werkzeuge/einstellungen_liste.py`. Im
 | Kopf- und Fußzeilen: Höchstlänge | `pdf2md.KOPF_FUSS_MAX_LAENGE` | 300 Zeichen | 50 bis 600 Zeichen (Schritt 10) | Längere Zeilen gelten nie als Kopf- oder Fußzeile. Nur für sehr lange Wasserzeichen erhöhen. |
 | Kopf- und Fußzeilen: Randzeilen | `pdf2md.KOPF_FUSS_RAND` | 3 Zeilen | 1 bis 6 Zeilen (Schritt 1) | So viele Zeilen am Seitenanfang und -ende werden auf Kopf- und Fußzeilen geprüft. Erhöhen, wenn Kopfzeilen hinter Spalten- oder Bildtext stehen bleiben. |
 | Überschrift: Zeilen im Text | `pdf2md.TITEL_MAX_ZEILEN` | 5 Zeilen | 1 bis 10 Zeilen (Schritt 1) | So viele Zeilen darf ein im Text umbrochener Lesezeichen-Titel umfassen. Erhöhen, wenn lange Titel doppelt erscheinen. |
+| Überschrift: Schriftgröße | `schriftbild.GROESSER` | 1,15 × | 1,05 bis 1,6 × (Schritt 0,05) | So viel größer als der Fließtext muss eine Zeile sein, um ohne Lesezeichen als Überschrift zu gelten (1,15 = 15 % größer). Erhöhen, wenn große Bildbeschriftungen zu Überschriften werden. |
+| Hervorhebung: Mindestlänge | `schriftbild.MIN_BUCHSTABEN` | 4 Buchstaben | 2 bis 10 Buchstaben (Schritt 1) | So viele Buchstaben braucht ein einzelnes fettes oder kursives Wort, um übernommen zu werden; kürzere sind meist Formelzeichen. Erhöhen, wenn Variablen wie *Fmax* betont erscheinen. |
 
 ### Seitenzahlen und Zitieren
 

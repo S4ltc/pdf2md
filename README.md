@@ -32,8 +32,7 @@ entsteht automatisch auf einem Windows-Rechner von GitHub aus genau diesem Quell
 
 ## Benutzen (`pdf2md.exe`)
 
-`pdf2md.exe` doppelklicken: es öffnet sich ein Fenster (hell oder dunkel wie Windows). Bedient wird nur dort, die
-früheren Kommandozeilen-Schalter und das Ziehen auf die `.exe` gibt es nicht mehr.
+`pdf2md.exe` doppelklicken: es öffnet sich ein Fenster (hell oder dunkel wie Windows), in dem alles bedient wird.
 
 1. **Hinzufügen …** (Strg+O) oder Dateien bzw. einen Ordner **ins Fenster ziehen**: die Dateien werden nach `Eingang`
    kopiert (das Original bleibt, wo es ist; bei gleichem Namen kommt ` (2)` dazu). Dateien direkt in den Ordner
@@ -110,6 +109,7 @@ Der Text wird zusätzlich bereinigt:
 | Wörter und Sätze über den Seitenwechsel verbinden | `Reg-` / `ler` wird `Regler`; ein Satz behält den Marker mitten im Satz |
 | Indizes, Exponenten, Brüche als LaTeX | `p1` wird `p$_{1}$`, `V / T0` wird `$\frac{V}{T_{0}}$`, siehe [Formelsatz](#formelsatz-latex) |
 | Tabellen mit Gitterlinien als Markdown-Tabelle | siehe [Tabellen](#tabellen) |
+| Fett und kursiv als Markdown | `**Kennwert**`, `*Zugfestigkeit*`; kursive Formelzeichen wie `F` bleiben ohne Sternchen, siehe [Ohne Lesezeichen, fett und kursiv](#überschriften-ohne-lesezeichen-fett-und-kursiv) |
 | Zeichenfehler der PDF-Schriften beheben | `fü r` wird `für`, `f¸r` wird `für`, Symbol-Schrift `U+F061` wird `α` (siehe [Zeichenkorrektur](#zeichenkorrektur)) |
 | Lizenz-Wasserzeichen gekaufter Normen entfernen | `Datum / Uhrzeit des Ausdrucks: … Firmenname: … Benutzername: …` |
 | Leerseiten-Vermerke entfernen | `— Leerseite —`, `This page is intentionally blank.` |
@@ -138,7 +138,8 @@ Ebene 0 wird `#`, Ebene 1 `##` und so weiter (höchstens sechs). Das hilft einer
 und zu zerlegen. Steht der Titel auf der Zielseite als eigene Zeile, wird genau diese Zeile zur Überschrift (so bleibt
 die Reihenfolge im Text richtig, auch bei Titeln, die über zwei oder drei Zeilen umbrochen sind). Sonst steht die
 Überschrift am Seitenanfang. Im Test an 58 Büchern hatten 56 Lesezeichen (30 bis 1700 Einträge), im Schnitt wurden
-etwa 90 % der Titel direkt im Text gefunden. Bücher ohne Lesezeichen bekommen keine Überschriften.
+etwa 90 % der Titel direkt im Text gefunden. Hat ein PDF keine Lesezeichen, kommen die Überschriften aus der
+Schriftgröße (nächster Abschnitt).
 
 Seiten ohne Text bekommen keine Überschrift, damit ein gescanntes Buch mit Lesezeichen nicht wie ein Textbuch aussieht.
 Abschalten im Fenster unter Einstellungen (`UEBERSCHRIFTEN_AUS_LESEZEICHEN`).
@@ -146,6 +147,25 @@ Im Kopfblock steht unter `lesezeichen:`, wie viele Überschriften eingefügt wur
 
 Zeigt ein Lesezeichen eine Seite zu früh (kommt vor, gemessen am Inhaltsverzeichnis) und steht der Titel erst auf der
 nächsten Seite, kommt die Überschrift dorthin, damit auch die Seitenangabe des Abschnitts stimmt.
+
+### Überschriften ohne Lesezeichen, fett und kursiv
+
+Das Tool liest je Zeile Schriftgröße und Schriftschnitt (Code in `schriftbild.py`).
+
+- **Überschriften aus der Schriftgröße**, nur wenn ein PDF keine Lesezeichen hat: Zeilen, die deutlich größer als der
+  Fließtext sind, und nummerierte Abschnittstitel (`3.5 …`, auch nur etwas größer oder fett in Textgröße). Die Ebene
+  folgt der Nummer (`3.1.1` wird `###`), ohne Nummer der Schriftgröße. Keine Überschrift werden Kolumnentitel, Bild-
+  und Tabellenunterschriften, Zeilen des Inhaltsverzeichnisses, Sätze, Formeln und Diagrammbeschriftungen.
+  Gemessen an 57 Büchern und 56 Normen, deren Lesezeichen dafür als Vergleich dienten: gefunden wurden 73 % der
+  Lesezeichen-Titel der Bücher (Normen 82 %), und 62 % der erkannten Überschriften stehen auch in den Lesezeichen
+  (Normen 72 %; die übrigen sind oft echte Unterabschnitte, die kein Lesezeichen haben). Lesezeichen bleiben deshalb
+  die erste Wahl. Im Kopfblock steht dann `ueberschriften:` statt `lesezeichen:`.
+- **Fett und kursiv** werden `**fett**`, `*kursiv*` bzw. `***beides***`. Kursive Formelzeichen zählen nicht
+  (Formelschriften und einzelne kurze Wörter). Ist fast der ganze Text eines PDFs als fett gekennzeichnet, gilt das
+  als Grundschrift. Eingesetzt wird nur, wo die Stelle auf ihrer Seite eindeutig wiederzufinden ist; Überschriften,
+  Tabellen und Formeln bleiben unberührt. Im Kopfblock: `hervorhebungen:`.
+- Kosten: etwa 13 % mehr Laufzeit. Abschalten im Fenster unter Einstellungen („Überschriften aus der Schriftgröße“,
+  „Fett und kursiv übernehmen“).
 
 ### Seitenzahlen und Zitieren
 
@@ -179,8 +199,8 @@ den Büchern), es zählt zur Seite, auf der es beginnt. Läuft ein Satz über di
 Im Kopfblock jeder PDF-`.md` steht unter `seitenzahlen:`, woher die Zahlen kommen, und unter `zitierhinweis:` eine
 kurze Erklärung der Marker für die KI. Abschalten: `GEDRUCKTE_SEITENZAHLEN = False` (dann nur `<!-- PDF-Seite N -->`).
 
-**Lebende Kolumnentitel** (Kopfzeilen, die mit dem Abschnitt wechseln: `1.3 Geschichtlicher Werdegang 13`,
-`584 10 Beziehungen zur Systemdynamik`) fallen jetzt ebenfalls weg: Mit bekannter Seitenzahl sind sie sicher zu erkennen
+**Lebende Kolumnentitel** (Kopfzeilen, die mit dem Abschnitt wechseln: `1.3 Grundbegriffe 13`,
+`584 10 Schwingungen`) fallen ebenfalls weg: Mit bekannter Seitenzahl sind sie sicher zu erkennen
 (kurze Randzeile, die mit genau dieser Zahl beginnt oder endet; nur wenn das Buch das auf mindestens 30 % der Seiten tut).
 
 ### Lesereihenfolge zweispaltiger Seiten
@@ -525,6 +545,8 @@ abweichenden Werten erzeugt, steht das im Kopfblock (`einstellungen: "abweichend
 - Zitate immer im PDF gegenprüfen (Strg+F mit einem Satz aus der `.md` findet die Stelle), besonders Zahlen aus
   Tabellen und Formeln. Seitenangaben nur aus Markern mit gedruckter Zahl (`<!-- Seite S (PDF N) -->`) übernehmen.
 - Tabellen ohne Gitterlinien bleiben Text. Formeln mit Matrizen oder mehrzeiligen Klammern bleiben flach.
+- Überschriften aus der Schriftgröße (PDFs ohne Lesezeichen) sind deutlich ungenauer als Lesezeichen. Fett und
+  kursiv fehlen dort, wo eine Stelle nicht eindeutig wiederzufinden ist.
 - Ältere Office-Formate (`.doc`, `.ppt`, `.xls`) sowie `.odt` und `.txt` werden nicht unterstützt und beim Hinzufügen abgelehnt.
 - Passwortgeschützte PDFs (Öffnen-Passwort) und beschädigte Dateien bleiben mit verständlicher Meldung im Eingang; ein
   nur gegen Bearbeiten geschütztes PDF wird normal gelesen.

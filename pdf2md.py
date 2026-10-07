@@ -69,6 +69,10 @@ try:
 except Exception:           # pragma: no cover
     zitierdaten = None
 try:
+    import schriftbild      # Schriftgroesse und Fett/Kursiv: Ueberschriften ohne Lesezeichen, Hervorhebungen
+except Exception:           # pragma: no cover
+    schriftbild = None
+try:
     import einstellungen    # alle einstellbaren Werte (Fenster, Einstellungen.json, Unterprozesse, Kopfblock)
 except Exception:           # pragma: no cover
     einstellungen = None
@@ -108,6 +112,10 @@ PDF_ENGINE_NAMEN = {"pdfium": "PDFium", "markitdown": "MarkItDown"}   # so steht
 FORMELN_REPARIEREN = True
 # Kapitelstruktur aus den PDF-Lesezeichen als Markdown-Ueberschriften (#, ##, ...) einfuegen (nur PDFium-Weg).
 UEBERSCHRIFTEN_AUS_LESEZEICHEN = True
+# Hat die PDF keine Lesezeichen: Ueberschriften aus der Schriftgroesse erkennen (schriftbild.py, nur PDFium-Weg).
+UEBERSCHRIFTEN_AUS_SCHRIFT = True
+# Fette und kursive Wortgruppen als **fett** / *kursiv* uebernehmen (schriftbild.py, nur PDFium-Weg).
+HERVORHEBUNGEN = True
 # Zweispaltige Seiten, deren Text im PDF in falscher Reihenfolge steht (rechte Spalte vor der linken), in
 # Lesereihenfolge bringen (nur PDFium-Weg). Details in lesefolge.py.
 SPALTENREIHENFOLGE = True
@@ -211,7 +219,11 @@ _rueckmeldung: dict = {"melder": None, "fortschritt": None}
 def melden(text: str) -> None:
     melder = _rueckmeldung["melder"]
     if melder is None:
-        print(text)
+        try:
+            print(text)
+        except UnicodeEncodeError:              # alte Konsole (cp1252) kennt z.B. "⚠" nicht: ersetzen statt abbrechen
+            kodierung = getattr(sys.stdout, "encoding", None) or "ascii"
+            print(text.encode(kodierung, "replace").decode(kodierung))
     else:
         melder(text)
 
@@ -817,10 +829,13 @@ def lesezeichen_lesen(pfad: Path) -> dict[int, list[tuple[int, str]]]:
     return ergebnis
 
 
-def _ueberschriften_einfuegen(text: str, eintraege: list[tuple[int, str]], statistik: dict | None = None) -> str:
+def _ueberschriften_einfuegen(text: str, eintraege: list[tuple[int, str]], statistik: dict | None = None,
+                              nur_vorhandene: bool = False) -> str:
     """Macht aus den Lesezeichen einer Seite Markdown-Ueberschriften. Steht der Titel als eigene Zeile im Seitentext
     (auch auf bis zu drei Zeilen umbrochen), wird genau diese Zeile zur Ueberschrift. Sonst kommt die Ueberschrift an
-    den Seitenanfang. Ebene 0 wird '#', Ebene 1 '##' usw. (hoechstens sechs)."""
+    den Seitenanfang, ausser bei nur_vorhandene (Ueberschriften aus der Schriftgroesse: deren Titel stammt aus den
+    rohen Zeichen, steht die Zeile so nicht im korrigierten Text, waere er eine Dublette mit Zeichenfehler).
+    Ebene 0 wird '#', Ebene 1 '##' usw. (hoechstens sechs)."""
     zeilen: list[str | None] = text.split("\n")
     ueberschrift = set()
     oben = []
@@ -851,7 +866,7 @@ def _ueberschriften_einfuegen(text: str, eintraege: list[tuple[int, str]], stati
             for k in range(i + 1, j + 1):
                 zeilen[k] = None
             ueberschrift.add(i)
-        else:
+        elif not nur_vorhandene:
             oben.append(marke + titel)
         if statistik is not None:
             statistik["gesamt"] = statistik.get("gesamt", 0) + 1
@@ -874,7 +889,7 @@ KOLUMNENTITEL_ANTEIL = 0.3  # so viele Seiten muessen einen haben, damit die Reg
 
 
 def _kolumnentitel_entfernen(zeilen_je_seite: list[list[str]], gedruckt: list[str | None]) -> list[list[str]]:
-    """Lebende Kolumnentitel ("1.3 Geschichtlicher Werdegang des Strahlantriebs 13", "584 10 Beziehungen zur ...")
+    """Lebende Kolumnentitel ("1.3 Grundbegriffe 13", "584 10 Schwingungen")
     wechseln mit dem Abschnitt und fallen deshalb durch die Kopf-/Fusszeilen-Erkennung (die gleiche Zeilen sucht).
     Mit bekannter gedruckter Seitenzahl sind sie sicher zu erkennen: eine kurze Randzeile, die mit genau dieser Zahl
     beginnt oder endet. Nur, wenn das Buch das auf vielen Seiten so macht (sonst koennte es Zufall sein)."""
@@ -976,7 +991,8 @@ def _ueber_seitenwechsel(vorher: str, text: str, marker: str) -> tuple[str, str]
 
 
 def seiten_zu_text(seiten: list[str], ueberschriften: dict[int, list[tuple[int, str]]] | None = None,
-                   statistik: dict | None = None, labels: list[str | None] | None = None) -> str:
+                   statistik: dict | None = None, labels: list[str | None] | None = None,
+                   nur_vorhandene: bool = False) -> str:
     """Rohtext je PDF-Seite -> bereinigter Gesamttext mit Seitenmarkern und, wenn angegeben, Ueberschriften aus den
     Lesezeichen (nur auf Seiten mit Text, damit die Scan-Erkennung nicht getaeuscht wird). Der Marker nennt die
     gedruckte Seitenzahl (labels: Seitenlabel der PDF, sonst aus Kopf-/Fusszeilen), siehe seitenzahlen.py.
@@ -1001,7 +1017,7 @@ def seiten_zu_text(seiten: list[str], ueberschriften: dict[int, list[tuple[int, 
     for nr, text in enumerate(texte, 1):
         if text.strip():
             if ueberschriften and (nr - 1) in ueberschriften:
-                text = _ueberschriften_einfuegen(text, ueberschriften[nr - 1], statistik)
+                text = _ueberschriften_einfuegen(text, ueberschriften[nr - 1], statistik, nur_vorhandene)
             if not SEITENMARKER:
                 teile.append(text)
                 continue
@@ -1031,14 +1047,24 @@ def formelsatz_aktiv() -> bool:
     return bool(FORMELSATZ and formelsatz is not None and zeichen is not None)
 
 
-def _pdfium_seiten(pfad: Path, statistik: dict | None = None, reparatur=None) -> list[str]:
+def schriftbild_aktiv() -> bool:
+    return bool((HERVORHEBUNGEN or UEBERSCHRIFTEN_AUS_SCHRIFT) and schriftbild is not None)
+
+
+def _phrase_normieren(text: str) -> str:
+    """Zeichen einer Hervorhebung so bereinigen wie den Seitentext (_seite_bereinigen), damit sie sich wiederfindet."""
+    return STEUERZEICHEN.sub("", unicodedata.normalize("NFC", text).replace("\t", " ").translate(LIGATUREN))
+
+
+def _pdfium_seiten(pfad: Path, statistik: dict | None = None, reparatur=None,
+                   schrift: list | None = None) -> list[str]:
     """Rohtext jeder PDF-Seite ueber PDFium (Chrome-PDF-Engine). Bei zweispaltigen Seiten mit falscher Reihenfolge
     im PDF wird der Text in Lesereihenfolge geliefert (statistik["spalten"] zaehlt diese Seiten).
     Seiten mit verdaechtigen Zeichen (zeichen.py) oder Gitter-Tabellen (tabellen.py) werden in einem zweiten Durchgang
     Zeichen fuer Zeichen neu gelesen; erst dann stehen die Entscheidungen je Schrift fest, und der Zelltext der Tabellen
     bekommt dieselben Korrekturen. statistik["zeichen"] zaehlt die Zeichenkorrekturen, statistik["tabellen"] die
     Tabellen, statistik["korrekturen"] ({Seite: {Zeichenindex: Ersatz}}) braucht die Formelreparatur beim Neuaufbau
-    einer Seite."""
+    einer Seite. schrift: bekommt je Seite die Zeilen mit Schriftgroesse und Fett/Kursiv (schriftbild.py)."""
     import pypdfium2 as pdfium
     spalten = spalten_aktiv()
     korrektur = zeichen.Korrektur() if zeichen_aktiv() else None
@@ -1056,9 +1082,16 @@ def _pdfium_seiten(pfad: Path, statistik: dict | None = None, reparatur=None) ->
         for i in range(anzahl):
             fortschritt_melden("Text lesen", i + 1, anzahl)
             seite = dokument[i]
+            if schrift is not None:
+                schrift.append([])
             try:
                 textseite = seite.get_textpage()
                 try:
+                    if schrift is not None:
+                        try:
+                            schrift[-1] = schriftbild.zeilen_lesen(textseite, i)
+                        except Exception:
+                            pass        # ohne Schriftbild nur keine Hervorhebungen auf dieser Seite
                     folge = lesefolge.bereiche(textseite) if spalten else None
                     if folge and statistik is not None:
                         statistik["spalten"] = statistik.get("spalten", 0) + 1
@@ -1184,6 +1217,10 @@ def erwartete_textquelle() -> str:
             name += " + Formelsatz"
         if seitenzahlen_aktiv():
             name += " + Seitenzahlen"
+        if UEBERSCHRIFTEN_AUS_SCHRIFT and schriftbild is not None:
+            name += " + Schriftgrößen-Überschriften"
+        if HERVORHEBUNGEN and schriftbild is not None:
+            name += " + Hervorhebungen"
     return name
 
 
@@ -1195,7 +1232,8 @@ def normen_aktiv() -> bool:
     return bool(NORMEN_ERKENNEN and normen is not None)
 
 
-def _pdfium_text(pfad: Path, spalten: dict | None = None) -> tuple[list[str], dict | None]:
+def _pdfium_text(pfad: Path, spalten: dict | None = None,
+                schrift: list | None = None) -> tuple[list[str], dict | None]:
     """Rohtext je Seite (PDFium), danach ggf. mit repariertem Formelzeichen. Statistik oder None.
     spalten: bekommt die Zahl der in Lesereihenfolge gebrachten Seiten."""
     def platzhalter_weg(texte: list[str]) -> list[str]:
@@ -1211,7 +1249,7 @@ def _pdfium_text(pfad: Path, spalten: dict | None = None) -> tuple[list[str], di
     eigene = spalten if spalten is not None else {}
     try:
         # die Zuordnung der Formelreparatur entsteht zwischen den beiden Durchgaengen (siehe _pdfium_seiten)
-        seiten = _pdfium_seiten(pfad, eigene, rep)
+        seiten = _pdfium_seiten(pfad, eigene, rep, schrift)
         korrekturen = eigene.pop("korrekturen", None)
         if rep is None:
             return platzhalter_weg(seiten), None
@@ -1237,7 +1275,8 @@ def umwandeln(pfad: Path, seiten: int | None, konverter: MarkItDown) -> tuple[st
     if pfad.suffix.lower() == ".pdf" and PDF_ENGINE == "pdfium":
         try:
             spaltenstat: dict = {}
-            roh, formelstatistik = _pdfium_text(pfad, spaltenstat)
+            schrift: list | None = [] if schriftbild_aktiv() else None
+            roh, formelstatistik = _pdfium_text(pfad, spaltenstat, schrift)
             if formelstatistik and formelstatistik["ersetzt"]:
                 melden(f"   Formelzeichen repariert: {formelstatistik['a'] + formelstatistik['b']} Zeichenarten "
                       f"({formelstatistik['ersetzt']} Zeichen), {formelstatistik['offen']} unsicher")
@@ -1268,12 +1307,22 @@ def umwandeln(pfad: Path, seiten: int | None, konverter: MarkItDown) -> tuple[st
                     extra["norm"] = norm
                     melden(f"   Norm erkannt: {norm['bezeichnung']}:{norm['ausgabe']}"
                           + (f" – {norm['titel']}" if norm.get("titel") else " (Titel nicht gefunden)"))
+            ueberschriften = lesezeichen
+            if not lesezeichen and UEBERSCHRIFTEN_AUS_SCHRIFT and schrift:
+                try:
+                    ueberschriften = schriftbild.ueberschriften(schrift)
+                except Exception:                               # dann eben ohne Ueberschriften, wie bisher
+                    ueberschriften = None
             lz: dict = {}
-            text = seiten_zu_text(roh, lesezeichen, lz, spaltenstat.pop("labels", None))
+            text = seiten_zu_text(roh, ueberschriften, lz, spaltenstat.pop("labels", None),
+                                  nur_vorhandene=ueberschriften is not lesezeichen)
             if lz.get("seitenzahlen"):
                 extra["seitenzahlen"], extra["seitenzahlen_quelle"] = lz["seitenzahlen"], lz["seitenzahlen_quelle"]
                 melden(f"   Gedruckte Seitenzahlen: {lz['seitenzahlen']} von {len(roh)} Seiten ({lz['seitenzahlen_quelle']})")
-            if lz.get("gesamt"):
+            if lz.get("im_text") and ueberschriften is not lesezeichen:      # nur tatsaechlich gesetzte zaehlen
+                extra["ueberschriften_schrift"] = lz["im_text"]
+                melden(f"   Überschriften aus der Schriftgröße (PDF ohne Lesezeichen): {lz['im_text']}")
+            elif lz.get("gesamt") and ueberschriften is lesezeichen:
                 extra["ueberschriften"], extra["ueberschriften_im_text"] = lz["gesamt"], lz.get("im_text", 0)
                 melden(f"   Überschriften aus Lesezeichen: {lz['gesamt']} ({lz.get('im_text', 0)} direkt im Text gefunden)")
             if formeln_aktiv() and formelstatistik is not None:
@@ -1281,6 +1330,14 @@ def umwandeln(pfad: Path, seiten: int | None, konverter: MarkItDown) -> tuple[st
                 text, extra["umlaute"] = umlaute_ergaenzen(text, titel)
                 if extra["umlaute"]:
                     melden(f"   Umlaute aus dem Buch ergänzt: {extra['umlaute']} Wörter")
+            if HERVORHEBUNGEN and schrift:
+                try:                                            # ganz am Ende: der Text steht dann fest
+                    text, anzahl = schriftbild.einsetzen(text, schriftbild.hervorhebungen(schrift), _phrase_normieren)
+                except Exception:
+                    anzahl = 0
+                if anzahl:
+                    extra["hervorhebungen"] = anzahl
+                    melden(f"   Fett/kursiv übernommen: {anzahl} Stellen")
             return text, quelle, extra
         except Exception as e:
             melden(f"   PDFium hat die Datei nicht gelesen ({e}), verwende MarkItDown ...")
@@ -1397,8 +1454,8 @@ def _formeltext(s: dict) -> str:
     return text
 
 
-VERFAHRENSFELDER = ("formelreparatur", "lesezeichen", "spalten", "zeichenkorrektur", "tabellen",   # die Umwandlung
-                     "formelsatz", "seitenzahlen", "zitierhinweis", "einstellungen")
+VERFAHRENSFELDER = ("formelreparatur", "lesezeichen", "ueberschriften", "spalten", "zeichenkorrektur",   # die Umwandlung
+                     "tabellen", "formelsatz", "hervorhebungen", "seitenzahlen", "zitierhinweis", "einstellungen")
 
 
 def _formelsatztext(s: dict) -> str:
@@ -1430,6 +1487,10 @@ def _verfahrensfelder(kopf: dict, s: dict | None) -> None:
         kopf["formelreparatur"] = _formeltext(s)
     if s.get("ueberschriften"):
         kopf["lesezeichen"] = _lesezeichentext(s)
+    if s.get("ueberschriften_schrift"):
+        kopf["ueberschriften"] = f"{s['ueberschriften_schrift']} Überschriften aus der Schriftgröße (PDF ohne Lesezeichen)"
+    if s.get("hervorhebungen"):
+        kopf["hervorhebungen"] = f"{s['hervorhebungen']} fette/kursive Stellen als **fett** bzw. *kursiv* übernommen"
     if s.get("spalten"):
         kopf["spalten"] = _spaltentext(s)
     if s.get("zeichen") and zeichen.statistik_text(s["zeichen"]):     # nur gezaehlte, aber leere Arten: nichts

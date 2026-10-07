@@ -101,6 +101,22 @@ def erzeuge_zweispaltig(pfad, links, rechts, rechts_zuerst=False):
     return pfad
 
 
+def erzeuge_gestaltet(pfad, seiten, lesezeichen=None):
+    """PDF mit Schriftgroessen und Fett/Kursiv (Helvetica, eine der Standardschriften jedes PDF-Programms).
+    seiten: je Seite eine Liste von (Text, Groesse); im Text markieren **...** fett und __...__ kursiv (fpdf2)."""
+    from fpdf import FPDF
+    pdf = FPDF()
+    for i, zeilen in enumerate(seiten):
+        pdf.add_page()
+        for ebene, name in (lesezeichen or {}).get(i, []):
+            pdf.start_section(name, level=ebene)
+        for text, groesse in zeilen:
+            pdf.set_font("Helvetica", size=groesse)
+            pdf.multi_cell(0, groesse * 0.5, text, markdown=True, new_x="LMARGIN", new_y="NEXT")
+    pdf.output(str(pfad))
+    return pfad
+
+
 def spaltenzeilen(name, anzahl=20):
     return [f"{name} Spalte, Zeile {k:02d}: der Text" for k in range(1, anzahl + 1)]
 

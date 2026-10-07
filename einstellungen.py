@@ -74,6 +74,12 @@ EINSTELLUNGEN: tuple[Einstellung, ...] = (
     _schalter("UEBERSCHRIFTEN_AUS_LESEZEICHEN", "Text und Seiten", "Überschriften aus Lesezeichen",
               "Macht aus den Lesezeichen des PDFs Markdown-Überschriften. Ausschalten, wenn die Lesezeichen eines PDFs "
               "unbrauchbar sind."),
+    _schalter("UEBERSCHRIFTEN_AUS_SCHRIFT", "Text und Seiten", "Überschriften aus der Schriftgröße",
+              "Hat ein PDF keine Lesezeichen, werden deutlich größere Zeilen und fette Abschnittsnummern („2.4 …“) zu "
+              "Überschriften. Ausschalten, wenn dabei zu viele falsche Überschriften entstehen."),
+    _schalter("HERVORHEBUNGEN", "Text und Seiten", "Fett und kursiv übernehmen",
+              "Übernimmt fette und kursive Wortgruppen als **fett** und *kursiv*, kursive Formelzeichen ausgenommen. "
+              "Ausschalten, wenn reiner Text ohne Markdown-Betonung gebraucht wird."),
     _schalter("SPALTENREIHENFOLGE", "Text und Seiten", "Spaltenreihenfolge korrigieren",
               "Bringt zweispaltige Seiten in Lesereihenfolge, wenn das PDF die rechte Spalte vor der linken liefert. "
               "Nur zur Fehlersuche ausschalten."),
@@ -129,6 +135,12 @@ EINSTELLUNGEN: tuple[Einstellung, ...] = (
     _zahl("pdf2md.TITEL_MAX_ZEILEN", 5, 1, 10, 1, "Text und Seiten", "Überschrift: Zeilen im Text",
           "So viele Zeilen darf ein im Text umbrochener Lesezeichen-Titel umfassen. Erhöhen, wenn lange Titel doppelt "
           "erscheinen.", einheit="Zeilen"),
+    _zahl("schriftbild.GROESSER", 1.15, 1.05, 1.6, 0.05, "Text und Seiten", "Überschrift: Schriftgröße",
+          "So viel größer als der Fließtext muss eine Zeile sein, um ohne Lesezeichen als Überschrift zu gelten (1,15 "
+          "= 15 % größer). Erhöhen, wenn große Bildbeschriftungen zu Überschriften werden.", einheit="×"),
+    _zahl("schriftbild.MIN_BUCHSTABEN", 4, 2, 10, 1, "Text und Seiten", "Hervorhebung: Mindestlänge",
+          "So viele Buchstaben braucht ein einzelnes fettes oder kursives Wort, um übernommen zu werden; kürzere sind "
+          "meist Formelzeichen. Erhöhen, wenn Variablen wie *Fmax* betont erscheinen.", einheit="Buchstaben"),
     _zahl("pdf2md.KOLUMNENTITEL_RAND", 2, 1, 5, 1, "Seitenzahlen und Zitieren", "Kolumnentitel: Randzeilen",
           "So viele Zeilen oben und unten können einen Kolumnentitel mit Seitenzahl enthalten. Erhöhen, wenn "
           "Kolumnentitel im Text stehen bleiben.", einheit="Zeilen"),

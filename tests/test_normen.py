@@ -87,9 +87,9 @@ class TestTitel:
     def test_zusammensetzen_alte_titelseite(self):
         """Aeltere Titelseiten setzen jeden Titelteil ohne Strich auf eine eigene Zeile."""
         zeilen = ["Klebtechnik", "Hinweise zum Kleben von Bauteilen",
-                  "Teil 4: Kleben von Holz und", "Holzwerkstoffen"]
+                  "Teil 4: Kleben von Glas und", "Glaskeramik"]
         assert normen._zusammensetzen(zeilen) == ("Klebtechnik – Hinweise zum Kleben von Bauteilen – "
-                                                  "Teil 4: Kleben von Holz und Holzwerkstoffen")
+                                                  "Teil 4: Kleben von Glas und Glaskeramik")
 
     def test_titelseite_mit_nummernzeile(self):
         zeilen = [("DEUTSCHE NORM Juli 2023", 10.0), ("www.din.de", 7.0), ("DIN EN ISO 12345 D", 14.0),

@@ -153,7 +153,7 @@ class TestKopfFuss:
 
 class TestWeichesTrennzeichen:
     @pytest.mark.parametrize("roh, erwartet", [
-        ("Bruch\u00ad prüfung von Kehl\u00ad nähten", "Bruchprüfung von Kehlnähten"),   # senkrechter Tabellenkopf
+        ("Zug\u00ad prüfung von Probe\u00ad stäben", "Zugprüfung von Probestäben"),     # senkrechter Tabellenkopf
         ("Maschinen\u00ad\nbau", "Maschinenbau"),
         ("Ein\u00ad und Ausgabe", "Ein- und Ausgabe"),
         ("Norm\u00adentwurf", "Normentwurf"),                                          # mitten im Wort: nur weg

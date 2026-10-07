@@ -359,6 +359,10 @@ class Reparatur:
         flags = ctypes.c_int()
         for k in range(tp.count_chars()):
             code = raw.FPDFText_GetUnicode(tp, k)
+            if code == 2 and raw.FPDFText_IsHyphen(tp, k) == 1:
+                # PDFiums Markierung einer Silbentrennung, kein Zeichen der Schrift: wie get_text_range als U+FFFE, sonst
+                # "repariert" der Formvergleich sie in TeX-Schriften zum harten "-" ("zeit-lich")
+                code = 0xFFFE
             laenge = raw.FPDFText_GetFontInfo(tp, k, puffer, len(puffer), ctypes.byref(flags))
             name = puffer.value.decode("latin-1", "replace").split("+")[-1] if laenge > 0 else "?"
             z.codes.append(code)
@@ -549,6 +553,17 @@ class Reparatur:
         self._weg_b(seiten, zeichen)
         self._seiten, self._zeichen = seiten, zeichen
 
+    def _trennzeichen(self, k: int, code: int, fonts, codes, ist_math: dict) -> bool:
+        """Ist Zeichen k (Code 2) die weiche Trennung einer Textschrift? Am Zeilenende immer, mitten im Wort, wenn die
+        Zuordnung ein Strich ist (dieselbe Regel wie beim Neuaufbau Zeichen fuer Zeichen)."""
+        if k < len(codes) and codes[k] == 0xFFFE:                     # PDFium-Trennstrich (_zeichen_der_seite)
+            return True
+        if code != 2 or k >= len(fonts) or ist_math[fonts[k]]:
+            return False
+        ersatz = self.zuordnung.get((fonts[k], 2))
+        return (ersatz is not None and ersatz in STRICHE) or (ersatz is None and (k + 1 >= len(codes)
+                                                                                  or codes[k + 1] in (10, 13)))
+
     def aufbauen(self, rohtexte: list[str], korrekturen: dict[int, dict[int, str]] | None = None) -> list[str]:
         """Zweiter Teil von reparieren(): baut die betroffenen Seiten mit der Zuordnung neu auf."""
         korrekturen = korrekturen or {}
@@ -577,7 +592,11 @@ class Reparatur:
                         if korr[i]:                 # Korrektur aus zeichen.py (steht so schon im Rohtext)
                             text = korr[i]
                             if "\ue002" in text and formelsatz is not None:
-                                # Formel aus formelsatz.py: ihre unlesbaren Zeichen stehen als Platzhalter darin
+                                # Formel aus formelsatz.py: ihre unlesbaren Zeichen stehen als Platzhalter darin. \x02
+                                # einer Textschrift ist auch hier die weiche Trennung (wie unten), nicht "-"
+                                text = formelsatz.PLATZHALTER.sub(
+                                    lambda m: "\ufffe" if self._trennzeichen(int(m.group(1)), int(m.group(2)), fonts, codes,
+                                                                        ist_math) else m.group(0), text)
                                 text, n = formelsatz.aufloesen(text, lambda k, c: self.zuordnung.get(
                                     (fonts[k], codes[k])) if k < len(codes) else None)
                                 if n:

@@ -228,3 +228,14 @@ def test_kurze_praesentation_ist_kein_scan(arbeitsordner, konverter, lauf):
     folie.placeholders[1].text = "© 2024 Lehrstuhl"
     p_.save(arbeitsordner.eingang / "kurz.pptx")
     assert p.verarbeiten(arbeitsordner.eingang / "kurz.pptx", konverter, lauf).startswith("OK")
+
+
+def test_meldung_mit_sonderzeichen_auf_alter_konsole(monkeypatch):
+    """Ohne Fenster schreibt melden() auf die Konsole. Eine cp1252-Konsole kennt "⚠" nicht; vorher brach das die
+    PDFium-Umwandlung ab (Rueckfall auf MarkItDown), z.B. in werkzeuge/buecher_lauf.py."""
+    import io
+    puffer = io.BytesIO()
+    monkeypatch.setattr("sys.stdout", io.TextIOWrapper(puffer, encoding="cp1252"))
+    p.melden("   Formelsatz: 3 unsichere Formeln markiert (⚠[Formel unsicher])")
+    p.sys.stdout.flush()
+    assert b"Formelsatz" in puffer.getvalue()
