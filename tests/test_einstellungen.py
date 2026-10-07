@@ -26,8 +26,8 @@ def test_ausgenommen_und_vollstaendig():
     namen = {e.schluessel for e in E.EINSTELLUNGEN}
     assert "zitierdaten.USER_AGENT" not in namen and "formeln.DIAGNOSE" not in namen
     assert "tabellen.MIN_UEBERSTAND" not in namen and "zitierdaten.TIMEOUT" not in namen   # abgeleitet
-    assert len(namen) == len(E.EINSTELLUNGEN) == 93
-    assert sum(e.stufe == "normal" for e in E.EINSTELLUNGEN) == 17
+    assert len(namen) == len(E.EINSTELLUNGEN) == 96
+    assert sum(e.stufe == "normal" for e in E.EINSTELLUNGEN) == 20
     assert {e.typ for e in E.EINSTELLUNGEN} == {"bool", "int", "float", "wahl"}
 
 

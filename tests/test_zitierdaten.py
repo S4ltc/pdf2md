@@ -141,7 +141,8 @@ class TestKopfblock:
     def test_norm(self):
         norm = {"bezeichnung": "DIN EN ISO 13579", "ausgabe": "2023-07", "jahr": "2023", "titel": "Klebtechnik – Liste"}
         felder, _ = p.zitierangaben({"titel": "x", "autor": "DIN", "jahr": "2023", "kennungen": []}, "Text", norm)
-        assert felder == {"quellenangabe": "*Klebtechnik – Liste*, DIN EN ISO 13579:2023-07, 2023."}
+        assert felder["quellenangabe"] == "*Klebtechnik – Liste*, DIN EN ISO 13579:2023-07, 2023."
+        assert set(felder) == {"quellenangabe", "zitierstil", "bibtex"}
 
     def test_online(self, netz, monkeypatch):
         monkeypatch.setattr(p, "ONLINE_ABGLEICH", True)
@@ -150,3 +151,142 @@ class TestKopfblock:
                                      "kennungen": []}, text)
         assert felder["verlag"] == "Springer Vieweg" and felder["doi"] == BUCH_DOI
         assert felder["herausgeber"] == "Petra Sommer, Jonas Winter"
+
+
+BUCH = {"titel": "Beispielkunde", "autoren": [("Hans Dieter", "Muster"), ("Stefan", "Beispiel")],
+        "auflage": "16., aktualisierte Auflage", "ort": "Berlin", "verlag": "Springer Vieweg", "jahr": "2016",
+        "isbn": "9783000000037", "doi": "10.1007/978-3-000-00003-7"}
+HRSG = {"titel": "Atlas der Beispiele", "herausgeber": [("Petra", "Sommer"), ("Jonas", "Winter")], "auflage": "12",
+        "ort": "Berlin", "verlag": "Springer Vieweg", "jahr": "2019"}
+KAPITEL = {"titel": "Berechnung von Beispielen", "autoren": [("Hans-Jürgen", "Muster"), ("Eva", "Beispiel")],
+           "seiten": "33-48", "doi": "10.1007/978-3-000-00002-8_5"}
+NORM = {"bezeichnung": "DIN EN ISO 12345", "ausgabe": "2023-07", "jahr": "2023", "titel": "Klebtechnik – Teil",
+        "herausgeber": "DIN"}
+
+
+class TestApa:
+    def test_buch(self):
+        assert z.apa_buch(BUCH) == ("Muster, H. D., & Beispiel, S. (2016). *Beispielkunde* (16. Aufl.). Springer "
+                                    "Vieweg. https://doi.org/10.1007/978-3-000-00003-7")
+
+    def test_eine_person_erste_auflage_ohne_verlag(self):
+        assert z.apa_buch({"titel": "Titel", "autoren": [("Peter", "Muster")], "auflage": "1", "jahr": "2021"}) == \
+            "Muster, P. (2021). *Titel*."
+
+    def test_herausgeber(self):
+        assert z.apa_buch(HRSG) == "Sommer, P., & Winter, J. (Hrsg.). (2019). *Atlas der Beispiele* (12. Aufl.). " \
+                                   "Springer Vieweg."
+
+    def test_ohne_jahr(self):
+        assert z.apa_buch({"titel": "Titel", "autoren": [("Peter", "Muster")]}) == "Muster, P. (o. J.). *Titel*."
+
+    def test_kapitel(self):
+        assert z.apa_kapitel(KAPITEL, HRSG) == (
+            "Muster, H.-J., & Beispiel, E. (2019). Berechnung von Beispielen. In P. Sommer & J. Winter (Hrsg.), "
+            "*Atlas der Beispiele* (12. Aufl., S. 33–48). Springer Vieweg. https://doi.org/10.1007/978-3-000-00002-8_5")
+
+    def test_norm_und_entwurf(self):
+        assert z.apa_norm(NORM) == "DIN. (2023). *Klebtechnik – Teil* (DIN EN ISO 12345:2023-07)."
+        entwurf = dict(NORM, bezeichnung="E DIN 9876", ausgabe="2026-09", jahr="2026", entwurf=True)
+        assert z.apa_norm(entwurf) == "DIN. (2026). *Klebtechnik – Teil* (E DIN 9876:2026-09, Entwurf)."
+
+
+class TestDin690:
+    def test_buch(self):
+        assert z.din_buch(BUCH) == ("MUSTER, Hans Dieter und Stefan BEISPIEL, 2016. *Beispielkunde*. 16. Aufl. "
+                                    "Berlin: Springer Vieweg. ISBN 9783000000037. DOI: 10.1007/978-3-000-00003-7")
+
+    def test_mehr_als_drei_personen(self):
+        leute = [("Anna", "A"), ("Bert", "B"), ("Carl", "C"), ("Dora", "D")]
+        assert z.din_buch({"titel": "T", "autoren": leute, "jahr": "2020"}) == "A, Anna et al., 2020. *T*."
+
+    def test_herausgeber(self):
+        assert z.din_buch(HRSG) == ("SOMMER, Petra und Jonas WINTER, Hrsg., 2019. *Atlas der Beispiele*. 12. Aufl. "
+                                    "Berlin: Springer Vieweg.")
+
+    def test_kapitel(self):
+        assert z.din_kapitel(KAPITEL, HRSG) == (
+            "MUSTER, Hans-Jürgen und Eva BEISPIEL, 2019. Berechnung von Beispielen. In: Petra SOMMER und Jonas "
+            "WINTER, Hrsg. *Atlas der Beispiele*. 12. Aufl. Berlin: Springer Vieweg, S. 33–48. "
+            "DOI: 10.1007/978-3-000-00002-8_5")
+
+    def test_norm(self):
+        assert z.din_norm(NORM) == "DIN EN ISO 12345:2023-07, 2023. *Klebtechnik – Teil*."
+        entwurf = dict(NORM, bezeichnung="E DIN 9876", ausgabe="2026-09", jahr="2026", entwurf=True)
+        assert z.din_norm(entwurf) == "E DIN 9876:2026-09 (Entwurf), 2026. *Klebtechnik – Teil*."
+
+
+class TestStilWahl:
+    @pytest.mark.parametrize("stil, anfang", [("ieee", "H. D. Muster und S. Beispiel, *"),
+                                              ("apa", "Muster, H. D., & Beispiel, S. (2016)"),
+                                              ("din", "MUSTER, Hans Dieter und Stefan BEISPIEL, 2016.")])
+    def test_buch_im_stil(self, stil, anfang):
+        assert z.buch(BUCH, stil).startswith(anfang)
+
+    def test_unbekannter_stil_ist_ieee(self):
+        assert z.buch(BUCH, "xyz") == z.ieee_buch(BUCH) and z.norm(NORM, "xyz") == z.ieee_norm(NORM)
+
+
+class TestBibtex:
+    def test_buch(self):
+        assert z.bibtex_buch(BUCH) == (
+            "@book{muster2016beispielkunde, author = {Muster, Hans Dieter and Beispiel, Stefan}, "
+            "title = {{Beispielkunde}}, edition = {16}, publisher = {Springer Vieweg}, address = {Berlin}, "
+            "year = {2016}, isbn = {9783000000037}, doi = {10.1007/978-3-000-00003-7}}")
+
+    def test_herausgeber_und_erste_auflage(self):
+        eintrag = z.bibtex_buch(dict(HRSG, auflage="1"))
+        assert eintrag.startswith("@book{sommer2019atlas, editor = {Sommer, Petra and Winter, Jonas}, ")
+        assert "edition" not in eintrag
+
+    def test_sonderzeichen_und_umlaute(self):
+        eintrag = z.bibtex_buch({"titel": "Über Lager & Wellen: 50 % Last", "autoren": [("Jörg", "Müßig")],
+                                 "verlag": "Wiley & Sons", "jahr": "2020"})
+        assert eintrag.startswith("@book{muessig2020ueber, ")
+        assert "title = {{Über Lager \\& Wellen: 50 \\% Last}}" in eintrag
+        assert "publisher = {Wiley \\& Sons}" in eintrag
+
+    def test_schluessel_ohne_fuellwort(self):
+        assert z.bibtex_schluessel([("Peter", "Muster")], "2021", "3D mit Beispielen") == "muster2021beispielen"
+
+    def test_norm(self):
+        assert z.bibtex_norm(NORM) == (
+            "@standard{din12345_2023, title = {{Klebtechnik – Teil}}, number = {DIN EN ISO 12345:2023-07}, "
+            "organization = {DIN}, year = {2023}}")
+        entwurf = dict(NORM, bezeichnung="E DIN 9876", ausgabe="2026-09", jahr="2026", entwurf=True)
+        assert z.bibtex_norm(entwurf).endswith("year = {2026}, note = {Entwurf}}")
+
+
+class TestKopfblockStile:
+    def test_apa_mit_bibtex(self, monkeypatch):
+        monkeypatch.setattr(p, "ONLINE_ABGLEICH", False)
+        monkeypatch.setattr(p, "ZITIERSTIL", "apa")
+        felder, _ = p.zitierangaben({"titel": "Mein Buch", "autor": "Anna Beispiel", "jahr": "2020",
+                                     "kennungen": []}, "Text")
+        assert felder["quellenangabe"] == "Beispiel, A. (2020). *Mein Buch*."
+        assert felder["zitierstil"] == "APA 7" and felder["bibtex"].startswith("@book{beispiel2020mein, ")
+
+    def test_ohne_bibtex(self, monkeypatch):
+        monkeypatch.setattr(p, "ONLINE_ABGLEICH", False)
+        monkeypatch.setattr(p, "BIBTEX", False)
+        felder, _ = p.zitierangaben({"titel": "Mein Buch", "autor": "Anna Beispiel", "jahr": "2020",
+                                     "kennungen": []}, "Text")
+        assert "bibtex" not in felder and felder["zitierstil"] == "IEEE"
+
+    def test_norm_im_stil(self, monkeypatch):
+        monkeypatch.setattr(p, "ZITIERSTIL", "din")
+        felder, _ = p.zitierangaben({"titel": "x", "autor": "DIN", "jahr": "2023", "kennungen": []}, "Text", NORM)
+        assert felder["quellenangabe"] == "DIN EN ISO 12345:2023-07, 2023. *Klebtechnik – Teil*."
+        assert felder["zitierstil"] == "DIN ISO 690" and felder["bibtex"].startswith("@standard{")
+
+    def test_kapitelquelle_im_stil(self, netz, monkeypatch):
+        buch = z.nachschlagen([BUCH_DOI])
+        text = f"<!-- Seite 33 (PDF 41) -->\n# 5 Berechnung\nhttps://doi.org/{BUCH_DOI}_5\n"
+        neu, anzahl = z.kapitel_einfuegen(text, buch, "apa")
+        assert anzahl == 1 and "<!-- Kapitelquelle (APA 7): Muster, H.-J., & Beispiel, E. (2019). " in neu
+
+    @pytest.mark.parametrize("stil, im_text", [("ieee", "[Nr., S. S]"), ("apa", "(Autor, Jahr, S. S)"),
+                                               ("din", "(AUTOR Jahr, S. S)")])
+    def test_zitierhinweis_nennt_stil(self, monkeypatch, stil, im_text):
+        monkeypatch.setattr(p, "ZITIERSTIL", stil)
+        assert im_text in p.zitierhinweis() and z.STILE[stil] in p.zitierhinweis()

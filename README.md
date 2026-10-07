@@ -21,12 +21,21 @@ digital signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
 Prüfsumme mit `SHA256SUMS.txt` aus dem Release (`Get-FileHash pdf2md-…-windows.zip` in PowerShell). Die `.exe`
 entsteht automatisch auf einem Windows-Rechner von GitHub aus genau diesem Quellcode (`.github/workflows/release.yml`).
 
+**Updates:** Oben im Fenster steht die Versionsnummer. Gibt es auf GitHub eine neuere Version, erscheint daneben
+„Version … verfügbar“; ein Klick öffnet die Release-Seite. Zum Aktualisieren das neue ZIP herunterladen und nur
+`pdf2md.exe` ersetzen. Die Ordner (`Eingang`, `Fertig`, `Prüfen`, `Sicherung`), `Protokoll.csv` und
+`Einstellungen.json` bleiben, wie sie sind; neue Standardwerte greifen von selbst, weil nur Abweichungen gespeichert
+werden. Danach unter Werkzeuge → „Text erneuern“ die vorhandenen Bücher mit dem neuen Verfahren umwandeln lassen.
+
 ## Datenschutz
 
 - Alles läuft auf dem eigenen Rechner; es gibt keine Telemetrie und keine Anmeldung.
 - Online geht nur eine Anfrage, wenn Angaben fehlen bzw. für die Quellenangabe: gesendet wird ausschließlich die
   DOI oder ISBN an Crossref und die Deutsche Nationalbibliothek, mit dem allgemeinen Kennzeichen `pdf2md/1.0`, ohne
   Dateiinhalt, Dateinamen, Namen oder E-Mail. Abschalten: Einstellungen → Online-Abgleich.
+- Beim Start fragt das Fenster GitHub einmal nach der neuesten Version (öffentliche Release-Liste, Kennzeichen
+  `pdf2md/1.0`; GitHub sieht dabei wie bei jedem Seitenaufruf die IP-Adresse). Heruntergeladen wird nichts.
+  Abschalten: Einstellungen → Nach Updates suchen.
 - Lizenzvermerke gekaufter Normen (Firmen- und Benutzername, Kunden- und Abonummern, Lizenzkennung) werden aus dem
   Text entfernt, damit sie nicht in die `.md` und von dort in eine KI gelangen.
 
@@ -46,7 +55,7 @@ entsteht automatisch auf einem Windows-Rechner von GitHub aus genau diesem Quell
 | **Übersicht** | Drei Spalten: Eingang (Name, Format, Größe), Prüfen (Grund, „bereit zur Übernahme“, sobald der Kopfblock vollständig ist), Fertig (neuer Name, Neueste oben, Filterfeld). Ein Klick auf den Namen öffnet die Datei mit dem Standardprogramm (in Prüfen und Fertig die `.md`, zum Beispiel um den Kopfblock zu ergänzen), das Formatkürzel daneben („PDF“) das Original; „Ordner“ im Spaltenkopf öffnet den Ordner im Explorer. Während eines Laufs steht die aktuelle Datei abgesetzt oben, darunter die Warteschlange. Darunter vier Kennzahlen und zwei kleine Diagramme. Die Listen aktualisieren sich selbst, wenn sich die Ordner ändern. |
 | **Auswertung** | Bestand und Durchsatz (Dateien je Bereich, Formate, Seiten pro Minute je Lauf, Dauer gegen Seitenzahl), Metadaten-Qualität (Herkunft von Titel/Autor/Jahr, häufigste Prüfgründe, Anteil mit vollständiger IEEE-Quellenangabe), Text-Qualität (je Punkt Wert und höchstmögliche Anzahl, etwa „1.237 / 10.083 Formelzeilen“ unsicher markiert, gezählt über die Bücher, bei denen das Verfahren lief, dazu die Bücher mit den meisten offenen Stellen). |
 | **Einstellungen** | Alle Schalter und Schwellen (siehe unten), mit Tooltip nach kurzem Verweilen. |
-| **Werkzeuge** | Letzten Lauf rückgängig machen, Namen reparieren, Text erneuern (je mit Tooltip): jeweils erst eine vollständige Vorschau, ausgeführt wird erst nach Bestätigung. |
+| **Werkzeuge** | Letzten Lauf rückgängig machen, Namen reparieren, Text erneuern, Literaturliste exportieren (BibTeX, siehe [Quellenangabe](#quellenangabe-ieee-apa-7-din-iso-690-bibtex)) (je mit Tooltip): jeweils erst eine vollständige Vorschau, ausgeführt wird erst nach Bestätigung. |
 
 Ergebnis, neben der `.exe`:
 
@@ -66,7 +75,7 @@ Der volle Titel steht im Kopfblock der `.md`.
 
 Jede `.md` aus einer PDF bringt mit, was eine KI zum korrekten Zitieren braucht:
 
-- **Literaturangabe:** `quellenangabe:` im Kopfblock (IEEE), bei Sammelwerken je Kapitel `<!-- Kapitelquelle (IEEE): … -->`.
+- **Literaturangabe:** `quellenangabe:` im Kopfblock (IEEE, APA 7 oder DIN ISO 690, Einstellung „Zitierstil“), dazu `bibtex:`; bei Sammelwerken je Kapitel `<!-- Kapitelquelle (IEEE): … -->`.
 - **Seite:** jeder Seitenmarker nennt die gedruckte Seite, `<!-- Seite 197 (PDF 206) -->` heißt „S. 197“. Steht nur
   `<!-- PDF-Seite 3 -->`, gibt es keine gedruckte Seitenzahl.
 - **Abschnitt:** Überschriften mit Nummer (`## 5.2 Anforderungen`), bei Normen die übliche Zitierform.
@@ -74,6 +83,8 @@ Jede `.md` aus einer PDF bringt mit, was eine KI zum korrekten Zitieren braucht:
 
 Eine Anweisung an die KI kann so lauten: *„Antworte nur mit Stellen aus den angehängten Dateien. Gib zu jeder Aussage
 das wörtliche Zitat, die Quelle aus `quellenangabe` und die Seite aus dem Seitenmarker davor an (Format [Nr., S. x]).“*
+Bei APA lautet das Format (Autor, Jahr, S. x), bei DIN ISO 690 (AUTOR Jahr, S. x); `zitierhinweis:` im Kopfblock
+nennt es der KI ebenfalls.
 Das wörtliche Zitat lässt sich im PDF mit Strg+F sofort finden und prüfen.
 
 ## Dateien in `Prüfen` nachbessern
@@ -402,7 +413,7 @@ alten Ort mit dem alten Namen zurück. Die `.md` wird daneben abgelegt, es wird 
 Bei drei oder mehr Autoren steht im Dateinamen nur der erste ("Muster et al."), im Kopfblock alle.
 Im Kopfblock der `.md` steht zu jedem Wert die Quelle (`titel_quelle`, `autor_quelle`, `jahr_quelle`).
 
-### Quellenangabe (IEEE)
+### Quellenangabe (IEEE, APA 7, DIN ISO 690, BibTeX)
 
 Für das Literaturverzeichnis schlägt das Tool über die DOI bei Crossref und über die ISBN bei der Deutschen
 Nationalbibliothek nach und schreibt in den Kopfblock (Code in `zitierdaten.py`):
@@ -415,6 +426,25 @@ verlag: "Springer Vieweg"   ort: "Berlin"   auflage: "16., aktualisierte Auflage
 IEEE in der deutschen Variante („Aufl.“, „Hrsg.“, „und“, „S.“), Titel kursiv als Markdown (`*…*`). Ab sieben Personen
 steht nur die erste mit „et al.“. Verlag (wie im Buch, z. B. „Springer Vieweg“), Ort und Auflage kommen bevorzugt von
 der DNB, Personen und DOI von Crossref. Im Text zitiert man mit Seite: `[1, S. 197]` (Seite aus dem Marker).
+
+**Andere Zitierstile** (Einstellungen → Zitierstil); der Kopfblock nennt den Stil unter `zitierstil:`:
+
+| Stil | Buch | Im Text |
+|---|---|---|
+| IEEE (Standard) | `H. D. Muster und S. Beispiel, *Beispielkunde*, 16. Aufl. Berlin: Springer Vieweg, 2016, doi: …` | `[1, S. 197]` |
+| APA 7 | `Muster, H. D., & Beispiel, S. (2016). *Beispielkunde* (16. Aufl.). Springer Vieweg. https://doi.org/…` | `(Muster & Beispiel, 2016, S. 197)` |
+| DIN ISO 690 | `MUSTER, Hans Dieter und Stefan BEISPIEL, 2016. *Beispielkunde*. 16. Aufl. Berlin: Springer Vieweg. ISBN …. DOI: …` | `(MUSTER und BEISPIEL 2016, S. 197)` |
+
+Normen: IEEE `*Titel*, DIN EN ISO 12345:2023-07, 2023.`, APA `DIN. (2023). *Titel* (DIN EN ISO 12345:2023-07).`,
+DIN ISO 690 `DIN EN ISO 12345:2023-07, 2023. *Titel*.` Nach einem Wechsel des Stils setzt Werkzeuge → „Text
+erneuern“ die Angaben der vorhandenen PDFs im neuen Stil.
+
+**BibTeX:** Zusätzlich steht ein BibTeX-Eintrag im Kopfblock (`bibtex:`, abschaltbar), zum Beispiel
+`@book{muster2016beispielkunde, author = {Muster, Hans Dieter and Beispiel, Stefan}, title = {{Beispielkunde}}, …}`,
+bei Normen `@standard{…}`. Werkzeuge → **Literaturliste exportieren** schreibt alle Bücher und Normen aus `Fertig` in
+eine Datei `Literatur.bib` neben dem Programm (eine vorhandene wird ersetzt), zum Import in Citavi, Zotero oder
+LaTeX; ältere `.md` ohne BibTeX-Feld werden dafür aus dem Kopfblock zusammengesetzt. Die Vorschau zeigt den
+Zitierschlüssel jeder Datei, gleiche Schlüssel bekommen `b`, `c` … angehängt.
 
 **Sammelwerke** (Handbücher, Atlanten): Jedes Kapitel hat eigene Autoren und wird einzeln zitiert. Steht die
 Kapitel-DOI im Text (Springer druckt sie auf die erste Kapitelseite), kommt dort die Quellenangabe des Kapitels hin:
@@ -528,7 +558,9 @@ abweichenden Werten erzeugt, steht das im Kopfblock (`einstellungen: "abweichend
 ### Veröffentlichen
 
 - **Tests:** laufen bei jedem Push auf `main` automatisch auf GitHub (`.github/workflows/tests.yml`).
-- **Release:** einen Versions-Tag pushen, z. B. `git tag v1.0.0` und `git push origin v1.0.0`. Dann baut GitHub die
+- **Release:** zuerst `VERSION` in `aktualisierung.py` erhöhen und committen, dann einen passenden Versions-Tag
+  pushen, z. B. `git tag v1.1.0` und `git push origin v1.1.0` (passen Tag und `VERSION` nicht, bricht der Ablauf ab,
+  sonst würde die Update-Suche falsch melden). Dann baut GitHub die
   `.exe`, lässt alle Tests in derselben Umgebung laufen, schreibt die Fremdlizenzen (`werkzeuge/drittlizenzen.py`)
   und legt das Release mit `pdf2md-v1.0.0-windows.zip` (exe, `LICENSE.txt`, `DRITTLIZENZEN.txt`, `LIESMICH.txt`)
   und `SHA256SUMS.txt` an.

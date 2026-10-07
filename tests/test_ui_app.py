@@ -301,3 +301,35 @@ def test_viele_buecher_rechnen_unterprozesse(api, basis, monkeypatch):
     assert api._im_speicher(fertig)
     buecher = api._buecher(fertig)
     assert [b["seiten"] for b in buecher] == [7] * 4 and buecher[0]["fragezeichen"] == 1
+
+
+def test_literaturliste_als_werkzeug(api, basis):
+    fertig = basis / "Fertig"
+    fertig.mkdir()
+    kopf = {"titel": "Beispielkunde", "autor": "Hans Muster", "jahr": "2016"}
+    (fertig / "Beispielkunde - Hans Muster - 2016.md").write_text(pdf2md.kopf_schreiben(kopf) + "Text", encoding="utf-8")
+    vorschau = api.werkzeug_vorschau("literatur")
+    assert vorschau["eintraege"] == [{"alt": "Beispielkunde - Hans Muster - 2016", "neu": "muster2016beispielkunde"}]
+    assert not (basis / "Literatur.bib").exists()
+    assert api.werkzeug_starten("literatur")["ok"]
+    assert warte_auf(api, "lauf_ende")["ergebnis"] == {"eintraege": 1, "datei": str(basis / "Literatur.bib")}
+    assert "@book{muster2016beispielkunde" in (basis / "Literatur.bib").read_text(encoding="utf-8")
+
+
+def test_version_und_update_hinweis(api, monkeypatch):
+    import aktualisierung
+    assert api.stand()["version"] == {"aktuell": aktualisierung.VERSION, "neu": None}
+    monkeypatch.setattr(aktualisierung, "neuere_version", lambda: "99.0.0")
+    vorher = api.signatur()
+    api.update_pruefen_starten()
+    api._update_thread.join(10)
+    assert api.stand()["version"] == {"aktuell": aktualisierung.VERSION, "neu": "99.0.0"}
+    assert api.signatur() != vorher                          # das Fenster laedt neu und zeigt den Hinweis
+
+
+def test_update_seite_oeffnet_nur_die_feste_adresse(api, monkeypatch):
+    import aktualisierung
+    geoeffnet = []
+    monkeypatch.setattr(ui_app, "link_oeffnen", geoeffnet.append)
+    assert api.update_oeffnen() == {"ok": True} and geoeffnet == [aktualisierung.SEITE]
+

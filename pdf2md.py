@@ -101,6 +101,9 @@ JAHR_AUS_ERSTELLDATUM = False
 # Fehlende Angaben ueber die ISBN/DOI bei Crossref (kostenlos, ohne Anmeldung) nachschlagen.
 # Gesendet wird nur die ISBN bzw. DOI, kein Dateiinhalt. Auf False setzen = komplett offline.
 ONLINE_ABGLEICH = True
+# Stil der Quellenangabe im Kopfblock: "ieee", "apa" (APA 7) oder "din" (DIN ISO 690), siehe zitierdaten.py
+ZITIERSTIL = "ieee"
+BIBTEX = True               # zusaetzlich ein BibTeX-Eintrag im Kopfblock (Citavi, Zotero, LaTeX)
 ONLINE_TIMEOUT = 10
 
 # Womit der Text aus PDFs gelesen wird:
@@ -127,8 +130,19 @@ GEDRUCKTE_SEITENZAHLEN = True
 ZITIERHINWEIS = ("Seitenmarker <!-- Seite S (PDF N) -->: S ist die gedruckte Seitenzahl, die zitiert wird; N ist die "
                  "Position in der PDF-Datei. <!-- PDF-Seite N --> hat keine gedruckte Seitenzahl, dort nicht 'S. N' "
                  "zitieren. Ein Marker mitten im Satz zeigt den Seitenwechsel innerhalb des Satzes. Literaturangabe: "
-                 "Feld quellenangabe (IEEE), im Text [Nr., S. S]; bei Sammelwerken gilt die Kapitelquelle davor. "
+                 "Feld quellenangabe ({stil}), im Text {im_text}; bei Sammelwerken gilt die Kapitelquelle davor. "
                  "Mit ⚠[Formel unsicher] markierte Formeln im PDF prüfen.")
+IM_TEXT = {"ieee": "[Nr., S. S]", "apa": "(Autor, Jahr, S. S)", "din": "(AUTOR Jahr, S. S)"}   # Zitat im Text je Stil
+
+
+def zitierstil() -> str:
+    return ZITIERSTIL if ZITIERSTIL in IM_TEXT else "ieee"
+
+
+def zitierhinweis() -> str:
+    stil = zitierstil()
+    name = zitierdaten.STILE[stil] if zitierdaten is not None else "IEEE"
+    return ZITIERHINWEIS.format(stil=name, im_text=IM_TEXT[stil])
 KOPF_FUSS_MIN_SEITEN = 8    # so oft muss eine Kopf-/Fusszeile vorkommen, um entfernt zu werden
 KOPF_FUSS_MAX_LAENGE = 300  # laengere Zeilen gelten nie als Kopf-/Fusszeile (Wasserzeichen sind oft 150 Zeichen lang)
 # Zeichenfehler auf Zeichenebene korrigieren (nur PDFium-Weg, Details in zeichen.py): "fü r" -> "für",
@@ -1482,7 +1496,7 @@ def _verfahrensfelder(kopf: dict, s: dict | None) -> None:
         kopf["seitenzahlen"] = (f"gedruckte Seitenzahl für {s['seitenzahlen']} von {kopf.get('seiten') or '?'} "
                                 f"PDF-Seiten ({s['seitenzahlen_quelle']})" if s.get("seitenzahlen")
                                 else "keine gedruckten Seitenzahlen gefunden, Marker nennen nur die PDF-Seite")
-        kopf["zitierhinweis"] = ZITIERHINWEIS
+        kopf["zitierhinweis"] = zitierhinweis()
     if s["a"] + s["b"] + s["offen"]:
         kopf["formelreparatur"] = _formeltext(s)
     if s.get("ueberschriften"):
@@ -1501,18 +1515,22 @@ def _verfahrensfelder(kopf: dict, s: dict | None) -> None:
         kopf["formelsatz"] = _formelsatztext(s["formelsatz"])
 
 
-ZITIERFELDER = ("quellenangabe", "verlag", "ort", "auflage", "herausgeber", "isbn", "doi", "zitierdaten_quelle",
+ZITIERFELDER = ("quellenangabe", "zitierstil", "bibtex", "verlag", "ort", "auflage", "herausgeber", "isbn", "doi", "zitierdaten_quelle",
                 "kapitelquellen")
 
 
 def zitierangaben(info: dict, text: str, norm: dict | None = None) -> tuple[dict, str]:
-    """Kopfblock-Felder fuer die Quellenangabe im IEEE-Stil und der Text, bei Sammelwerken mit der Quellenangabe jedes
-    Kapitels (zitierdaten.py). Online wird nur DOI/ISBN abgefragt (ONLINE_ABGLEICH); ohne Netz entsteht die Angabe aus
+    """Kopfblock-Felder fuer die Quellenangabe (Stil ZITIERSTIL, dazu BibTeX) und der Text, bei Sammelwerken mit der
+    Quellenangabe jedes Kapitels (zitierdaten.py). Online wird nur DOI/ISBN abgefragt (ONLINE_ABGLEICH); ohne Netz entsteht die Angabe aus
     Titel, Autor und Jahr. info braucht titel, autor, jahr (und kennungen fuer kennungen_sammeln)."""
     if zitierdaten is None:
         return {}, text
+    stil = zitierstil()
     if norm:
-        return {"quellenangabe": zitierdaten.ieee_norm(norm)}, text
+        felder = {"quellenangabe": zitierdaten.norm(norm, stil), "zitierstil": zitierdaten.STILE[stil]}
+        if BIBTEX:
+            felder["bibtex"] = zitierdaten.bibtex_norm(norm)
+        return felder, text
     daten = None
     if ONLINE_ABGLEICH:
         kennungen = kennungen_sammeln(info, text)
@@ -1526,7 +1544,9 @@ def zitierangaben(info: dict, text: str, norm: dict | None = None) -> tuple[dict
         d["autoren"] = zitierdaten.personen_aus_text(info.get("autor"))
     if not d["titel"]:
         return {}, text
-    felder = {"quellenangabe": zitierdaten.ieee_buch(d)}
+    felder = {"quellenangabe": zitierdaten.buch(d, stil), "zitierstil": zitierdaten.STILE[stil]}
+    if BIBTEX:
+        felder["bibtex"] = zitierdaten.bibtex_buch(d)
     for feld in ("verlag", "ort", "auflage", "isbn", "doi"):
         if d.get(feld):
             felder[feld] = d[feld]
@@ -1535,10 +1555,10 @@ def zitierangaben(info: dict, text: str, norm: dict | None = None) -> tuple[dict
     felder["zitierdaten_quelle"] = (f"{daten['quelle']} (über DOI/ISBN)" if daten
                                     else "nur Titel, Autor und Jahr (ohne Online-Abgleich, Verlag und Ort fehlen)")
     if daten:
-        text, anzahl = zitierdaten.kapitel_einfuegen(text, d)
+        text, anzahl = zitierdaten.kapitel_einfuegen(text, d, stil)
         if anzahl:
             felder["kapitelquellen"] = (f"{anzahl} Kapitel mit eigenen Autoren: Quellenangabe je Kapitel als "
-                                        "<!-- Kapitelquelle (IEEE): ... --> am Kapitelanfang")
+                                        f"<!-- Kapitelquelle ({zitierdaten.STILE[stil]}): ... --> am Kapitelanfang")
             melden(f"   Sammelwerk: Quellenangabe für {anzahl} Kapitel eingefügt")
     return felder, text
 
@@ -1789,8 +1809,75 @@ def namen_reparieren(lauf: str, plan: list[dict] | None = None, abbrechen=None) 
     return erledigt
 
 
+LITERATURLISTE = "Literatur.bib"     # neben dem Programm, Werkzeug "Literaturliste exportieren"
+
+
+def _bibtex_aus_kopf(werte: dict) -> str | None:
+    """BibTeX-Eintrag aus den Kopfblock-Feldern, fuer .md ohne Feld bibtex (aeltere oder BIBTEX ausgeschaltet)."""
+    titel = _text(werte.get("titel"))
+    if zitierdaten is None or not titel:
+        return None
+    jahr, norm = _text(werte.get("jahr")), _text(werte.get("norm"))
+    if norm and ":" in norm:
+        bezeichnung, _, ausgabe = norm.rpartition(":")
+        rest = titel.split(" – ", 1)[1] if titel.startswith(bezeichnung + " – ") else None
+        return zitierdaten.bibtex_norm({"bezeichnung": bezeichnung, "ausgabe": ausgabe, "jahr": jahr or ausgabe[:4],
+                                        "titel": rest, "herausgeber": _text(werte.get("autor")),
+                                        "entwurf": bezeichnung.startswith("E ")})
+    autoren = zitierdaten.personen_aus_text(_text(werte.get("autor")))
+    herausgeber = zitierdaten.personen_aus_text(_text(werte.get("herausgeber")))
+    if herausgeber and {n for _, n in autoren} <= {n for _, n in herausgeber}:
+        autoren = []                                   # Sammelwerk: als "Autor" steht ein Herausgeber
+    d = {"titel": titel, "autoren": autoren, "herausgeber": herausgeber, "jahr": jahr}
+    for feld in ("verlag", "ort", "auflage", "isbn", "doi"):
+        d[feld] = _text(werte.get(feld))
+    return zitierdaten.bibtex_buch(d)
+
+
+def literatur_plan() -> list[dict]:
+    """Ein BibTeX-Eintrag je .md in Fertig (Feld bibtex, sonst aus dem Kopfblock), Schluessel eindeutig gemacht
+    ("muster2016beispielkunde", "...b", "...c")."""
+    if not FERTIG.is_dir():
+        return []
+    plan, vergeben = [], set()
+    for md in sorted(FERTIG.glob("*.md")):
+        try:
+            with open(md, encoding="utf-8-sig") as f:
+                werte, _ = kopf_lesen(f.read(50000))
+        except OSError:
+            continue
+        eintrag = (_text(werte.get("bibtex")) or _bibtex_aus_kopf(werte)) if werte else None
+        m = re.match(r"@\w+\{([^,\s]+),", eintrag or "")
+        if not m:
+            continue
+        schluessel, n = m.group(1), 1
+        while schluessel in vergeben:
+            n += 1
+            schluessel = m.group(1) + "abcdefghijklmnopqrstuvwxyz"[min(n, 26) - 1] + ("" if n <= 26 else str(n))
+        vergeben.add(schluessel)
+        plan.append({"name": md.stem, "schluessel": schluessel,
+                     "eintrag": eintrag[:m.start(1)] + schluessel + eintrag[m.end(1):]})
+    return plan
+
+
+def literatur_schreiben(plan: list[dict], ziel: Path | None = None) -> Path:
+    """Schreibt die Eintraege als BibTeX-Datei (Standard: Literatur.bib neben Fertig); eine vorhandene wird ersetzt."""
+    ziel = ziel or FERTIG.parent / LITERATURLISTE
+    kopf = f"% Literaturliste aus pdf2md ({date.today().isoformat()}): {len(plan)} Einträge aus {FERTIG.name}\n\n"
+    with open(ziel, "w", encoding="utf-8", newline="\n") as f:
+        f.write(kopf + "\n\n".join(e["eintrag"] for e in plan) + "\n")
+    return ziel
+
+
+def _anderer_zitierstil(werte: dict) -> bool:
+    """Steht die Quellenangabe in einem anderen als dem eingestellten Stil? Aeltere .md ohne Feld: IEEE."""
+    return (bool(werte.get("quellenangabe")) and zitierdaten is not None
+            and werte.get("zitierstil", "IEEE") != zitierdaten.STILE[zitierstil()])
+
+
 def text_plan() -> list[dict]:
-    """PDFs in Fertig, deren Text nicht mit dem aktuellen Verfahren erzeugt wurde (textquelle im Kopfblock)."""
+    """PDFs in Fertig, deren Text nicht mit dem aktuellen Verfahren erzeugt wurde (textquelle im Kopfblock) oder deren
+    Quellenangabe einen anderen Zitierstil hat."""
     if not FERTIG.is_dir():
         return []
     plan = []
@@ -1800,8 +1887,8 @@ def text_plan() -> list[dict]:
             continue
         with open(md, encoding="utf-8-sig") as f:
             werte, _ = kopf_lesen(f.read(8000))
-        if werte is None or werte.get("textquelle") == erwartete_textquelle():
-            continue                                          # schon mit diesem Verfahren erzeugt
+        if werte is None or (werte.get("textquelle") == erwartete_textquelle() and not _anderer_zitierstil(werte)):
+            continue                                          # schon mit diesem Verfahren (und Zitierstil) erzeugt
         plan.append({"md": md, "original": original, "name": md.stem})
     return plan
 
@@ -1849,8 +1936,10 @@ def text_erneuern(lauf: str, plan: list[dict] | None = None, abbrechen=None, dat
             zitat, text = zitierangaben(info, text, (formelstatistik or {}).get("norm"))
             ersetzen = (str(werte.get("zitierdaten_quelle", "")).startswith("nur ")
                         and not str(zitat.get("zitierdaten_quelle", "nur ")).startswith("nur "))
+            neuer_stil = _anderer_zitierstil(werte)              # anderer Zitierstil eingestellt: Angabe neu setzen
             for feld, wert in zitat.items():
-                if feld not in werte or ersetzen or feld == "kapitelquellen":
+                if (feld not in werte or ersetzen or feld == "kapitelquellen"
+                        or (neuer_stil and feld in ("quellenangabe", "zitierstil"))):
                     werte[feld] = wert
             if kodierung_defekt(text):
                 werte["warnung"] = ("Umlaute fehlen teilweise (defekte Schriftkodierung im PDF, "

@@ -98,12 +98,22 @@ EINSTELLUNGEN: tuple[Einstellung, ...] = (
     _schalter("GEDRUCKTE_SEITENZAHLEN", "Seitenzahlen und Zitieren", "Gedruckte Seitenzahlen",
               "Ermittelt die gedruckte Seitenzahl aus dem Seitenlabel oder der Kopf- und Fußzeile. Ausgeschaltet nennen "
               "die Marker nur die Position im PDF."),
+    Einstellung("pdf2md.ZITIERSTIL", "wahl", "ieee", "Seitenzahlen und Zitieren", "normal", "Zitierstil",
+                "In diesem Stil steht die Quellenangabe im Kopfblock, auch die der Kapitel von Sammelwerken. Nach "
+                "einem Wechsel setzt „Text erneuern“ die Angaben vorhandener PDFs im neuen Stil.",
+                optionen=(("ieee", "IEEE"), ("apa", "APA 7"), ("din", "DIN ISO 690"))),
+    _schalter("BIBTEX", "Seitenzahlen und Zitieren", "BibTeX im Kopfblock",
+              "Schreibt zusätzlich einen BibTeX-Eintrag für Citavi, Zotero oder LaTeX in den Kopfblock. Die "
+              "Literaturliste unter Werkzeuge entsteht auch ohne dieses Feld."),
     _schalter("ONLINE_ABGLEICH", "Metadaten und Online", "Online-Abgleich",
               "Schlägt fehlende Angaben und die Quellenangabe bei Crossref und der DNB nach; gesendet wird nur DOI "
               "oder ISBN. Ausschalten für Läufe ganz ohne Internet."),
     _zahl("pdf2md.ONLINE_TIMEOUT", 10, 2, 60, 1, "Metadaten und Online", "Wartezeit online",
           "So lange wird auf eine Antwort von Crossref oder der DNB gewartet. Erhöhen bei langsamer Verbindung.",
           einheit="s", stufe="normal"),
+    Einstellung("aktualisierung.SUCHEN", "bool", True, "Metadaten und Online", "normal", "Nach Updates suchen",
+                "Fragt beim Start GitHub nach einer neueren Version und zeigt dann einen Hinweis mit Link; gesendet "
+                "wird nur die Anfrage selbst. Ausschalten für Rechner ganz ohne Internet."),
     _schalter("JAHR_AUS_ERSTELLDATUM", "Metadaten und Online", "Jahr aus Erstellungsdatum",
               "Nimmt das Erstellungsdatum der Datei als Erscheinungsjahr, wenn sonst keins gefunden wird. Das ist "
               "meist falsch, deshalb nur für eigene Dokumente einschalten.", standard=False),

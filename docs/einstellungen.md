@@ -2,7 +2,7 @@
 
 Erzeugt aus `einstellungen.py` mit `python werkzeuge/einstellungen_liste.py`. Im Fenster stehen die Texte als Tooltip, gespeichert werden Abweichungen in `Einstellungen.json` neben dem Programm.
 
-93 Einstellungen, davon 17 normal und 76 für Experten (an 58 Büchern gemessen).
+96 Einstellungen, davon 20 normal und 76 für Experten (an 58 Büchern gemessen).
 
 ## Normal
 
@@ -29,6 +29,8 @@ Erzeugt aus `einstellungen.py` mit `python werkzeuge/einstellungen_liste.py`. Im
 |---|---|---|---|---|
 | Seitenmarker | `pdf2md.SEITENMARKER` | an | an/aus | Setzt vor jede Seite einen Marker mit gedruckter und PDF-Seitenzahl, damit eine KI mit Seitenangabe zitieren kann. Nur ausschalten, wenn keine Seitenangaben gebraucht werden. |
 | Gedruckte Seitenzahlen | `pdf2md.GEDRUCKTE_SEITENZAHLEN` | an | an/aus | Ermittelt die gedruckte Seitenzahl aus dem Seitenlabel oder der Kopf- und Fußzeile. Ausgeschaltet nennen die Marker nur die Position im PDF. |
+| Zitierstil | `pdf2md.ZITIERSTIL` | IEEE | IEEE / APA 7 / DIN ISO 690 | In diesem Stil steht die Quellenangabe im Kopfblock, auch die der Kapitel von Sammelwerken. Nach einem Wechsel setzt „Text erneuern“ die Angaben vorhandener PDFs im neuen Stil. |
+| BibTeX im Kopfblock | `pdf2md.BIBTEX` | an | an/aus | Schreibt zusätzlich einen BibTeX-Eintrag für Citavi, Zotero oder LaTeX in den Kopfblock. Die Literaturliste unter Werkzeuge entsteht auch ohne dieses Feld. |
 
 ### Formeln
 
@@ -55,6 +57,7 @@ Erzeugt aus `einstellungen.py` mit `python werkzeuge/einstellungen_liste.py`. Im
 |---|---|---|---|---|
 | Online-Abgleich | `pdf2md.ONLINE_ABGLEICH` | an | an/aus | Schlägt fehlende Angaben und die Quellenangabe bei Crossref und der DNB nach; gesendet wird nur DOI oder ISBN. Ausschalten für Läufe ganz ohne Internet. |
 | Wartezeit online | `pdf2md.ONLINE_TIMEOUT` | 10 s | 2 bis 60 s (Schritt 1) | So lange wird auf eine Antwort von Crossref oder der DNB gewartet. Erhöhen bei langsamer Verbindung. |
+| Nach Updates suchen | `aktualisierung.SUCHEN` | an | an/aus | Fragt beim Start GitHub nach einer neueren Version und zeigt dann einen Hinweis mit Link; gesendet wird nur die Anfrage selbst. Ausschalten für Rechner ganz ohne Internet. |
 | Jahr aus Erstellungsdatum | `pdf2md.JAHR_AUS_ERSTELLDATUM` | aus | an/aus | Nimmt das Erstellungsdatum der Datei als Erscheinungsjahr, wenn sonst keins gefunden wird. Das ist meist falsch, deshalb nur für eigene Dokumente einschalten. |
 
 ### Ablage

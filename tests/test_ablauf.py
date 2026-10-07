@@ -366,3 +366,53 @@ def test_tests_nutzen_nie_die_echte_ablage():
     """conftest.keine_echte_ablage: auch ohne Fixture arbeitsordner landet nichts neben pdf2md.py."""
     for pfad in (p.EINGANG, p.FERTIG, p.PRUEFEN, p.PROTOKOLL, p.SICHERUNG):
         assert p.BASE_DIR not in pfad.parents
+
+
+class TestZitierstilWechsel:
+    def test_text_erneuern_setzt_die_quellenangabe_im_neuen_stil(self, arbeitsordner, konverter, lauf, monkeypatch):
+        p.verarbeiten(erzeuge_buch(arbeitsordner.eingang / "q.pdf"), konverter, lauf)
+        md = next(arbeitsordner.fertig.glob("*.md"))
+        assert kopf_von(md)[0]["zitierstil"] == "IEEE" and p.text_plan() == []
+        monkeypatch.setattr(p, "ZITIERSTIL", "apa")
+        assert [e["name"] for e in p.text_plan()] == [md.stem]            # Text aktuell, aber anderer Stil
+        p.text_erneuern(lauf)
+        werte, _ = kopf_von(md)
+        assert werte["quellenangabe"] == "Beispiel, A. (2019). *Testbuch*." and werte["zitierstil"] == "APA 7"
+        assert "(Autor, Jahr, S. S)" in werte["zitierhinweis"]
+
+
+class TestLiteraturliste:
+    def schreibe(self, ordner, name, kopf):
+        ordner.fertig.mkdir(exist_ok=True)
+        (ordner.fertig / f"{name}.md").write_text(p.kopf_schreiben(kopf) + "Text", encoding="utf-8")
+
+    def test_aus_kopfblock_und_bibtex_feld(self, arbeitsordner):
+        self.schreibe(arbeitsordner, "A", {"titel": "Beispielkunde", "autor": "Hans Muster", "jahr": "2016",
+                                           "verlag": "Springer Vieweg", "ort": "Berlin", "auflage": "3"})
+        self.schreibe(arbeitsordner, "B", {"titel": "x", "autor": "y", "jahr": "2020",
+                                           "bibtex": "@book{fertig2020, title = {{Schon da}}}"})
+        self.schreibe(arbeitsordner, "C", {"titel": "DIN EN ISO 12345 – Klebtechnik – Teil", "autor": "DIN",
+                                           "jahr": "2023", "norm": "DIN EN ISO 12345:2023-07"})
+        plan = p.literatur_plan()
+        assert [(e["name"], e["schluessel"]) for e in plan] == [
+            ("A", "muster2016beispielkunde"), ("B", "fertig2020"), ("C", "din12345_2023")]
+        ziel = p.literatur_schreiben(plan)
+        assert ziel == arbeitsordner.basis / "Literatur.bib"
+        inhalt = ziel.read_text(encoding="utf-8")
+        assert "@book{muster2016beispielkunde, author = {Muster, Hans}, title = {{Beispielkunde}}, edition = {3}" in inhalt
+        assert "@book{fertig2020, title = {{Schon da}}}" in inhalt
+        assert "@standard{din12345_2023, title = {{Klebtechnik – Teil}}, number = {DIN EN ISO 12345:2023-07}" in inhalt
+
+    def test_gleiche_schluessel_werden_eindeutig(self, arbeitsordner):
+        for name in ("A", "B", "C"):
+            self.schreibe(arbeitsordner, name, {"titel": "Beispielkunde", "autor": "Hans Muster", "jahr": "2016"})
+        assert [e["schluessel"] for e in p.literatur_plan()] == [
+            "muster2016beispielkunde", "muster2016beispielkundeb", "muster2016beispielkundec"]
+        inhalt = p.literatur_schreiben(p.literatur_plan()).read_text(encoding="utf-8")
+        assert "@book{muster2016beispielkundec, " in inhalt
+
+    def test_leer_und_unvollstaendig(self, arbeitsordner):
+        assert p.literatur_plan() == []
+        self.schreibe(arbeitsordner, "D", {"titel": None, "autor": "Hans Muster", "jahr": "2016"})
+        assert p.literatur_plan() == []
+

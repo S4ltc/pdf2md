@@ -19,6 +19,17 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Tag passt zur Version im Programm
+        shell: pwsh
+        run: |
+          # Die Update-Suche vergleicht aktualisierung.VERSION mit dem neuesten Tag; passen sie nicht zusammen,
+          # meldet das Programm sich selbst als veraltet (oder nie).
+          $version = (Select-String -Path aktualisierung.py -Pattern '^VERSION = "(.+)"').Matches[0].Groups[1].Value
+          if ("v$version" -ne "${{ github.ref_name }}") {
+            Write-Error "Tag ${{ github.ref_name }} passt nicht zu VERSION = `"$version`" in aktualisierung.py"
+            exit 1
+          }
+
       - name: pdf2md.exe bauen
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File build.ps1

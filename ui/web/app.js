@@ -7,7 +7,7 @@
   const D = window.Diagramme;
   const zahl = new Intl.NumberFormat("de-DE");
   const MODUS = (document.querySelector('meta[name="pdf2md-modus"]') || {}).content === "http" ? "http" : "fenster";
-  const AKTION = { rueckgaengig: "Zurückdrehen", namen: "Umbenennen", text: "Neu umwandeln" };
+  const AKTION = { rueckgaengig: "Zurückdrehen", namen: "Umbenennen", text: "Neu umwandeln", literatur: "Exportieren" };
   const HERKUNFT = [
     { name: "Crossref", farbe: "akzent" }, { name: "Norm", farbe: "akzent-linie" }, { name: "Text", farbe: "grau-1" },
     { name: "PDF-Metadaten", farbe: "grau-2" }, { name: "Dokument", farbe: "grau-3" },
@@ -97,7 +97,18 @@
     zustand.lauf = zustand.stand.lauf;
     zeigeUebersicht();
     zeigeLauf();
+    zeigeVersion();
     if (zustand.seite === "auswertung") ladeAuswertung();
+  }
+
+  /* Versionsnummer im Kopf; gibt es auf GitHub eine neuere, ein Hinweis mit Link (aktualisierung.py) */
+  function zeigeVersion() {
+    const v = zustand.stand && zustand.stand.version;
+    if (!v) return;
+    $("#version").textContent = v.aktuell;
+    const knopf = $("#update");
+    knopf.hidden = !v.neu;
+    knopf.textContent = v.neu ? `Version ${v.neu} verfügbar` : "";
   }
 
   function statusText(status, name) {
@@ -785,7 +796,7 @@
       { beschreibung: "Herkunft von Titel, Autor und Jahr", leer: "Noch keine Bücher." });
     D.balken($("#d-gruende"), a.pruefgruende.map(([label, wert]) => ({ label, wert })),
       { beschreibung: "Häufigste Prüfgründe", leer: "Keine Datei in Prüfen.", farbe: "grau-2" });
-    D.meter($("#d-ieee"), a.ieee[0], a.ieee[1], { beschreibung: "Bücher mit vollständiger IEEE-Quellenangabe",
+    D.meter($("#d-ieee"), a.ieee[0], a.ieee[1], { beschreibung: "Bücher mit vollständiger Quellenangabe",
       text: "Vollständig heißt: Verlag und Ort über DOI/ISBN nachgeschlagen, oder Norm.", leer: "Noch keine Bücher." });
 
     const s = a.textsummen;
@@ -877,6 +888,7 @@
     for (const b of document.querySelectorAll(".nav")) b.addEventListener("click", () => zeigeSeite(b.dataset.seite));
     $("#starten").addEventListener("click", startenOderAbbrechen);
     $("#hinzufuegen").addEventListener("click", hinzufuegen);
+    $("#update").addEventListener("click", () => rufe("update_oeffnen"));
     $("#filter-fertig").addEventListener("input", e => { zustand.filter = e.target.value; zeigeFertig(); });
     for (const b of document.querySelectorAll("[data-ordner]")) {
       b.addEventListener("click", async () => {

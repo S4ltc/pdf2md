@@ -10,7 +10,8 @@
 <a class="sprungmarke" href="#inhalt">Zum Inhalt</a>
 
 <header class="kopf">
-  <div class="marke" aria-label="pdf2md">pdf2md</div>
+  <div class="marke">pdf2md <span id="version" class="version"></span></div>
+  <button type="button" id="update" class="knopf-text update" hidden title="Release-Seite auf GitHub im Browser öffnen"></button>
   <nav class="navigation" aria-label="Bereiche">
     <button type="button" class="nav" data-seite="uebersicht" aria-current="page" aria-keyshortcuts="Control+1">Übersicht</button>
     <button type="button" class="nav" data-seite="auswertung" aria-keyshortcuts="Control+2">Auswertung</button>
@@ -26,6 +27,7 @@
         <li role="none"><button type="button" role="menuitem" data-werkzeug="rueckgaengig" tabindex="-1" aria-describedby="hilfe-rueckgaengig" data-tipp="links">Letzten Lauf rückgängig machen …</button></li>
         <li role="none"><button type="button" role="menuitem" data-werkzeug="namen" tabindex="-1" aria-describedby="hilfe-namen" data-tipp="links">Namen reparieren …</button></li>
         <li role="none"><button type="button" role="menuitem" data-werkzeug="text" tabindex="-1" aria-describedby="hilfe-text" data-tipp="links">Text erneuern …</button></li>
+        <li role="none"><button type="button" role="menuitem" data-werkzeug="literatur" tabindex="-1" aria-describedby="hilfe-literatur" data-tipp="links">Literaturliste exportieren …</button></li>
       </ul>
     </div>
     <button type="button" id="hinzufuegen" class="knopf" aria-keyshortcuts="Control+O" title="Dateien nach Eingang kopieren (Strg+O)">Hinzufügen …</button>
@@ -104,7 +106,7 @@
       <div class="raster">
         <figure class="diagramm-rahmen breit"><figcaption>Herkunft von Titel, Autor und Jahr</figcaption><div id="d-herkunft" class="diagramm"></div></figure>
         <figure class="diagramm-rahmen"><figcaption>Häufigste Prüfgründe</figcaption><div id="d-gruende" class="diagramm"></div></figure>
-        <figure class="diagramm-rahmen"><figcaption>Vollständige IEEE-Quellenangabe</figcaption><div id="d-ieee" class="diagramm"></div></figure>
+        <figure class="diagramm-rahmen"><figcaption>Vollständige Quellenangabe</figcaption><div id="d-ieee" class="diagramm"></div></figure>
       </div>
     </section>
     <section class="abschnitt" aria-labelledby="a-text">
@@ -177,6 +179,7 @@
 <div class="nur-vorlesen">
   <span id="hilfe-rueckgaengig">Dreht den letzten Lauf zurück: Originale gehen mit altem Namen an ihren alten Ort, die .md daneben. Gelöscht wird nichts, die Vorschau zeigt jede Datei.</span>
   <span id="hilfe-namen">Benennt Original und .md in Fertig nach Titel, Autor und Jahr im Kopfblock um, etwa nach einer Korrektur im Kopfblock. Auch von Hand umbenannte Dateien werden zurückbenannt, deshalb erst die Vorschau prüfen.</span>
+  <span id="hilfe-literatur">Schreibt alle Bücher und Normen aus Fertig als BibTeX-Datei (Literatur.bib) neben das Programm, zum Import in Citavi, Zotero oder LaTeX. Die Vorschau zeigt den Zitierschlüssel jeder Datei.</span>
   <span id="hilfe-text">Wandelt den Text der PDFs in Fertig mit dem aktuellen Verfahren neu um; Name und Kopfblock bleiben, die alte .md kommt nach Sicherung. Sinnvoll nach einem Update von pdf2md oder wenn Verfahren ein- oder ausgeschaltet wurden.</span>
 </div>
 

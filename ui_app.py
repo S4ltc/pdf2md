@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 import ablage
+import aktualisierung
 import auswertung
 import einstellungen
 import pdf2md
@@ -27,6 +28,7 @@ WERKZEUGE = {
     "rueckgaengig": "Letzten Lauf rückgängig machen",
     "namen": "Namen reparieren",
     "text": "Text erneuern",
+    "literatur": "Literaturliste exportieren",
 }
 DATEITYPEN = ("Unterstützte Dateien (*.pdf;*.docx;*.pptx;*.xlsx;*.epub;*.html;*.htm)", "Alle Dateien (*.*)")
 BEREICHE = ("eingang", "pruefen", "fertig")
@@ -47,6 +49,12 @@ def extern_oeffnen(pfad: Path) -> None:
     else:                                                    # pragma: no cover - das Tool ist fuer Windows gebaut
         import subprocess
         subprocess.Popen(["xdg-open", str(pfad)])
+
+
+def link_oeffnen(adresse: str) -> None:
+    """Seite im Standardbrowser oeffnen (nur feste Adressen aus dem Code, nie aus der Oberflaeche)."""
+    import webbrowser
+    webbrowser.open(adresse)
 
 
 def ordner_von(bereich: str) -> Path:
@@ -84,6 +92,8 @@ class Api:
         self._vorwaermer: threading.Thread | None = None
         self._warm = 0                                   # zaehlt fertige Hintergrundberechnungen (Teil der Signatur)
         self._letzter_fortschritt = (0.0, "")
+        self._update: str | None = None                  # neuere Version auf GitHub (aktualisierung.py)
+        self._update_thread: threading.Thread | None = None
 
     # ------------------------------------------------------------ Zustand
     def signatur(self) -> str:
@@ -110,7 +120,25 @@ class Api:
                   if l["art"] in ("Umwandlung", "Text erneuert")]
         return {"eingang": eingang, "pruefen": pruefen, "fertig": fertig, "kennzahlen": kennzahlen,
                 "mini": {"laeufe": laeufe[-24:], "herkunft": herkunft},
-                "lauf": self._laufzustand(), "signatur": signatur, "ordner": str(self._basis)}
+                "lauf": self._laufzustand(), "signatur": signatur, "ordner": str(self._basis),
+                "version": {"aktuell": aktualisierung.VERSION, "neu": self._update}}
+
+    # ------------------------------------------------------------ Version
+    def update_pruefen_starten(self) -> None:
+        """Fragt im Hintergrund nach einer neueren Version (einmal beim Start, abschaltbar: aktualisierung.SUCHEN).
+        Das Ergebnis aendert die Signatur, das Fenster laedt dann neu und zeigt den Hinweis."""
+        def pruefen():
+            neu = aktualisierung.neuere_version()
+            if neu:
+                with self._sperre:
+                    self._update = neu
+                    self._warm += 1
+        self._update_thread = threading.Thread(target=pruefen, daemon=True)
+        self._update_thread.start()
+
+    def update_oeffnen(self) -> dict:
+        link_oeffnen(aktualisierung.SEITE)
+        return {"ok": True}
 
     def ereignisse(self, nach: int = 0) -> dict:
         with self._sperre:
@@ -195,6 +223,12 @@ class Api:
             hinweis = ("Original und .md bekommen den Namen aus Titel, Autor und Jahr im Kopfblock. Auch von Hand "
                        "umbenannte Dateien werden zurückbenannt." if plan
                        else "Alle Namen in Fertig stimmen mit dem Kopfblock überein.")
+        elif name == "literatur":
+            plan = pdf2md.literatur_plan()
+            eintraege = [{"alt": e["name"], "neu": e["schluessel"]} for e in plan]
+            hinweis = (f"Schreibt {pdf2md.LITERATURLISTE} neben das Programm (eine vorhandene Datei wird ersetzt), "
+                       "zum Import in Citavi, Zotero oder LaTeX. Rechts steht der Schlüssel zum Zitieren." if plan
+                       else "In Fertig gibt es noch keine Datei mit Titel im Kopfblock.")
         else:
             plan = pdf2md.text_plan()
             eintraege = [{"alt": e["name"], "neu": ""} for e in plan]
@@ -215,6 +249,8 @@ class Api:
             return {"ok": False, "grund": "Erst die Vorschau öffnen."}
         if name == "rueckgaengig":
             return self._starten(WERKZEUGE[name], lambda stempel: {"zurueck": pdf2md.rueckgaengig(plan)})
+        if name == "literatur":
+            return self._starten(WERKZEUGE[name], lambda stempel: self._literatur(plan))
         if name == "namen":
             return self._starten(WERKZEUGE[name], lambda stempel: {
                 "umbenannt": pdf2md.namen_reparieren(stempel, plan, abbrechen=self._abbruch.is_set),
@@ -223,6 +259,12 @@ class Api:
             "erneuert": pdf2md.text_erneuern(stempel, plan, abbrechen=self._abbruch.is_set,
                                              datei_beginnt=self._datei_beginnt, datei_fertig=self._datei_fertig),
             "abgebrochen": self._abbruch.is_set()})
+
+    @staticmethod
+    def _literatur(plan: list[dict]) -> dict:
+        ziel = pdf2md.literatur_schreiben(plan)
+        pdf2md.melden(f"{len(plan)} Einträge nach {ziel} geschrieben")
+        return {"eintraege": len(plan), "datei": str(ziel)}
 
     # ------------------------------------------------------------ Einstellungen
     def einstellungen(self) -> dict:
@@ -560,6 +602,7 @@ def main() -> int:
         return 1
     import webview
     api = Api(basis)
+    api.update_pruefen_starten()
     fenster = webview.create_window("pdf2md", url=str(web_ordner() / "index.html"), js_api=api, width=1280,
                                     height=820, min_size=(720, 560), text_select=True,
                                     background_color="#1f1f1f" if system_dunkel() else "#fafafa")

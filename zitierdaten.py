@@ -1,4 +1,5 @@
-"""Bibliografische Angaben fuer korrekte Quellenangaben im IEEE-Stil (deutsche Variante: "Aufl.", "Hrsg.", "S.", "und").
+"""Bibliografische Angaben fuer korrekte Quellenangaben: IEEE (Standard, deutsche Variante: "Aufl.", "Hrsg.", "S.",
+"und"), APA 7 und DIN ISO 690 (Name-Jahr), dazu BibTeX fuer Citavi, Zotero und LaTeX.
 
 Quellen ueber DOI/ISBN: Crossref (DOI, Kapitel von Sammelwerken) und die Deutsche Nationalbibliothek (ISBN; liefert
 Verlag/Imprint, Ort und Auflage deutscher Buecher zuverlaessiger als Crossref).
@@ -16,6 +17,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import re
+import unicodedata
 import urllib.parse
 import urllib.request
 
@@ -263,6 +265,186 @@ def ieee_norm(norm: dict) -> str:
     return (f"*{titel}*, {nummer}, {norm['jahr']}." if titel else f"{nummer}, {norm['jahr']}.")
 
 
+# ---------------------------------------------------------------- APA 7 und DIN ISO 690 (Name-Jahr), Auswahl
+STILE = {"ieee": "IEEE", "apa": "APA 7", "din": "DIN ISO 690"}      # Einstellung pdf2md.ZITIERSTIL -> Name im Kopfblock
+
+
+def _auflage_nr(auflage: str | None) -> str | None:
+    m = re.match(r"\s*(\d+)", auflage or "")
+    return m.group(1) if m and int(m.group(1)) > 1 else None
+
+
+def _seiten(seiten: str | None) -> str | None:
+    return seiten.replace("-", "–") if seiten else None
+
+
+def personen_apa(personen: list[tuple[str, str]]) -> str:
+    """"Muster, H. D., & Beispiel, S."; ab 21 Personen die ersten 19, "…" und die letzte (APA 7)."""
+    namen = [f"{n}, {initialen(v)}" if initialen(v) else n for v, n in personen]
+    if len(namen) > 20:
+        return ", ".join(namen[:19]) + ", … " + namen[-1]
+    return namen[0] if len(namen) == 1 else ", ".join(namen[:-1]) + ", & " + namen[-1]
+
+
+def _apa_vorn(personen: list[tuple[str, str]]) -> str:
+    """Herausgeber im Kapitel: "P. Sommer & J. Winter", "A. A, B. B, & C. C"."""
+    namen = [f"{initialen(v)} {n}".strip() for v, n in personen]
+    if len(namen) <= 2:
+        return " & ".join(namen)
+    return ", ".join(namen[:-1]) + ", & " + namen[-1]
+
+
+def _apa_titel(titel: str, auflage: str | None, seiten: str | None = None) -> str:
+    zusatz = [f"{nr}. Aufl." for nr in [_auflage_nr(auflage)] if nr] + ([f"S. {_seiten(seiten)}"] if seiten else [])
+    return f"*{titel}*" + (f" ({', '.join(zusatz)})" if zusatz else "")
+
+
+def _apa_ende(verlag: str | None, doi: str | None) -> str:
+    return (f" {verlag}." if verlag else "") + (f" https://doi.org/{doi}" if doi else "")
+
+
+def apa_buch(d: dict) -> str:
+    jahr = f"({d.get('jahr') or 'o. J.'})"
+    titel = _apa_titel(d["titel"], d.get("auflage"))
+    if d.get("autoren"):
+        text = f"{personen_apa(d['autoren'])} {jahr}. {titel}."
+    elif d.get("herausgeber"):
+        text = f"{personen_apa(d['herausgeber'])} (Hrsg.). {jahr}. {titel}."
+    else:
+        text = f"{titel}. {jahr}."
+    return text + _apa_ende(d.get("verlag"), d.get("doi"))
+
+
+def apa_kapitel(k: dict, buch: dict) -> str:
+    hrsg = f"{_apa_vorn(buch['herausgeber'])} (Hrsg.), " if buch.get("herausgeber") else ""
+    text = (f"{personen_apa(k['autoren'])} ({buch.get('jahr') or 'o. J.'}). {k['titel']}. In {hrsg}"
+            f"{_apa_titel(buch['titel'], buch.get('auflage'), k.get('seiten'))}.")
+    return text + _apa_ende(buch.get("verlag"), k.get("doi"))
+
+
+def _norm_herausgeber(norm: dict) -> str:
+    return norm.get("herausgeber") or re.sub(r"^E\s+", "", norm["bezeichnung"]).split()[0]
+
+
+def apa_norm(norm: dict) -> str:
+    nummer = f"{norm['bezeichnung']}:{norm['ausgabe']}" + (", Entwurf" if norm.get("entwurf") else "")
+    kopf = f"{_norm_herausgeber(norm)}. ({norm['jahr']})."
+    return f"{kopf} *{norm['titel']}* ({nummer})." if norm.get("titel") else f"{kopf} *{nummer}*."
+
+
+def personen_din(personen: list[tuple[str, str]]) -> str:
+    """"MUSTER, Hans Dieter und Stefan BEISPIEL"; mehr als drei: die erste mit "et al." (DIN ISO 690)."""
+    vor, nach = personen[0]
+    erste = f"{nach.upper()}, {vor}" if vor else nach.upper()
+    if len(personen) > 3:
+        return erste + " et al."
+    rest = [f"{v} {n.upper()}".strip() for v, n in personen[1:]]
+    return erste if not rest else ", ".join([erste] + rest[:-1]) + " und " + rest[-1]
+
+
+def _din_vorn(personen: list[tuple[str, str]]) -> str:
+    namen = [f"{v} {n.upper()}".strip() for v, n in personen]
+    if len(namen) > 3:
+        return namen[0] + " et al."
+    return namen[0] if len(namen) == 1 else ", ".join(namen[:-1]) + " und " + namen[-1]
+
+
+def din_buch(d: dict) -> str:
+    jahr = d.get("jahr") or "o. J."
+    if d.get("autoren"):
+        teile = [f"{personen_din(d['autoren'])}, {jahr}.", f"*{d['titel']}*."]
+    elif d.get("herausgeber"):
+        teile = [f"{personen_din(d['herausgeber'])}, Hrsg., {jahr}.", f"*{d['titel']}*."]
+    else:
+        teile = [f"*{d['titel']}*, {jahr}."]
+    nr = _auflage_nr(d.get("auflage"))
+    teile += [f"{nr}. Aufl."] if nr else []
+    teile += [_erscheinung(d) + "."] if _erscheinung(d) else []
+    teile += [f"ISBN {d['isbn']}."] if d.get("isbn") else []
+    teile += [f"DOI: {d['doi']}"] if d.get("doi") else []
+    return " ".join(teile)
+
+
+def din_kapitel(k: dict, buch: dict) -> str:
+    hrsg = f"{_din_vorn(buch['herausgeber'])}, Hrsg. " if buch.get("herausgeber") else ""
+    teile = [f"{personen_din(k['autoren'])}, {buch.get('jahr') or 'o. J.'}.", f"{k['titel']}.",
+             f"In: {hrsg}*{buch['titel']}*."]
+    nr = _auflage_nr(buch.get("auflage"))
+    teile += [f"{nr}. Aufl."] if nr else []
+    ort = ", ".join(x for x in (_erscheinung(buch), f"S. {_seiten(k['seiten'])}" if k.get("seiten") else "") if x)
+    teile += [ort + "."] if ort else []
+    teile += [f"DOI: {k['doi']}"] if k.get("doi") else []
+    return " ".join(teile)
+
+
+def din_norm(norm: dict) -> str:
+    nummer = f"{norm['bezeichnung']}:{norm['ausgabe']}" + (" (Entwurf)" if norm.get("entwurf") else "")
+    return f"{nummer}, {norm['jahr']}." + (f" *{norm['titel']}*." if norm.get("titel") else "")
+
+
+def buch(d: dict, stil: str = "ieee") -> str:
+    return {"apa": apa_buch, "din": din_buch}.get(stil, ieee_buch)(d)
+
+
+def kapitel(k: dict, b: dict, stil: str = "ieee") -> str:
+    return {"apa": apa_kapitel, "din": din_kapitel}.get(stil, ieee_kapitel)(k, b)
+
+
+def norm(n: dict, stil: str = "ieee") -> str:
+    return {"apa": apa_norm, "din": din_norm}.get(stil, ieee_norm)(n)
+
+
+# ---------------------------------------------------------------- BibTeX (Citavi, Zotero, LaTeX)
+BIB_MASKE = str.maketrans({"&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_", "{": r"\{", "}": r"\}"})
+UMSCHRIFT = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss", "Ä": "Ae", "Ö": "Oe", "Ü": "Ue"})
+FUELLWOERTER = {"der", "die", "das", "des", "dem", "den", "ein", "eine", "the", "and", "und", "von", "zur", "zum", "mit",
+                "für", "auf", "aus", "bei", "for", "with"}
+
+
+def _bib(text: str) -> str:
+    return str(text).translate(BIB_MASKE)
+
+
+def _schluesselteil(text: str) -> str:
+    text = unicodedata.normalize("NFKD", unicodedata.normalize("NFC", text).translate(UMSCHRIFT))
+    return re.sub(r"[^a-z0-9-]", "", "".join(c for c in text if not unicodedata.combining(c)).lower())
+
+
+def bibtex_schluessel(personen: list[tuple[str, str]], jahr: str | None, titel: str) -> str:
+    """"muster2016beispielkunde": Nachname der ersten Person, Jahr, erstes Titelwort (ohne Artikel)."""
+    wort = next((w for w in re.findall(r"[^\W\d_]+", titel or "") if len(w) >= 3 and w.lower() not in FUELLWOERTER), "")
+    return (_schluesselteil(personen[0][1]) if personen else "") + (jahr or "") + _schluesselteil(wort) or "eintrag"
+
+
+def _bib_personen(personen: list[tuple[str, str]]) -> str:
+    return " and ".join(_bib(f"{n}, {v}" if v else n) for v, n in personen)
+
+
+def _bib_eintrag(typ: str, schluessel: str, felder: list[tuple[str, str | None]]) -> str:
+    return "@" + typ + "{" + schluessel + ", " + ", ".join(f"{k} = {{{v}}}" for k, v in felder if v) + "}"
+
+
+def bibtex_buch(d: dict) -> str:
+    personen = d.get("autoren") or d.get("herausgeber") or []
+    return _bib_eintrag("book", bibtex_schluessel(personen, d.get("jahr"), d["titel"]), [
+        ("author", _bib_personen(d["autoren"]) if d.get("autoren") else None),
+        ("editor", _bib_personen(d["herausgeber"]) if d.get("herausgeber") else None),
+        ("title", "{" + _bib(d["titel"]) + "}"),          # doppelte Klammern: Grossschreibung bleibt (deutsche Titel)
+        ("edition", _auflage_nr(d.get("auflage"))),
+        ("publisher", _bib(d["verlag"]) if d.get("verlag") else None),
+        ("address", _bib(d["ort"]) if d.get("ort") else None),
+        ("year", d.get("jahr")), ("isbn", d.get("isbn")), ("doi", d.get("doi"))])
+
+
+def bibtex_norm(norm: dict) -> str:
+    herausgeber = _norm_herausgeber(norm)
+    nummer = (re.search(r"\d+(?:-\d+)*", norm["bezeichnung"]) or [""])[0]
+    return _bib_eintrag("standard", f"{_schluesselteil(herausgeber)}{nummer}_{norm['jahr']}", [
+        ("title", "{" + _bib(norm["titel"]) + "}" if norm.get("titel") else None),
+        ("number", _bib(f"{norm['bezeichnung']}:{norm['ausgabe']}")), ("organization", _bib(herausgeber)),
+        ("year", norm["jahr"]), ("note", "Entwurf" if norm.get("entwurf") else None)])
+
+
 def ist_sammelwerk(d: dict | None) -> bool:
     return bool(d and (d.get("typ") in ("edited-book", "reference-book") or (d.get("herausgeber")
                                                                              and not d.get("autoren"))))
@@ -272,10 +454,11 @@ def ist_sammelwerk(d: dict | None) -> bool:
 MARKER = re.compile(r"<!-- (?:Seite \S+ \(PDF \d+\)|PDF-Seite \d+|Seite \d+) -->")
 
 
-def kapitel_einfuegen(text: str, buch: dict) -> tuple[str, int]:
+def kapitel_einfuegen(text: str, buch: dict, stil: str = "ieee") -> tuple[str, int]:
     """Bei Sammelwerken (Handbuecher, Atlanten) hat jedes Kapitel eigene Autoren und wird einzeln zitiert.
     Die Kapitel-DOI steht auf der ersten Kapitelseite; dort kommt die Quellenangabe des Kapitels als Kommentar hinter
-    den Seitenmarker: <!-- Kapitelquelle (IEEE): ... -->. Gibt (Text, Anzahl eingefuegter Kapitel) zurueck."""
+    den Seitenmarker: <!-- Kapitelquelle (IEEE): ... --> (bzw. im gewaehlten Stil). Gibt (Text, Anzahl
+    eingefuegter Kapitel) zurueck."""
     if not ist_sammelwerk(buch) or not buch.get("doi"):
         return text, 0
     praefix = buch["doi"] + "_"
@@ -305,7 +488,7 @@ def kapitel_einfuegen(text: str, buch: dict) -> tuple[str, int]:
             continue
         k = aus_crossref(m)
         k["doi"] = doi
-        zeile = f"<!-- Kapitelquelle (IEEE): {ieee_kapitel(k, buch)} -->"
+        zeile = f"<!-- Kapitelquelle ({STILE.get(stil, 'IEEE')}): {kapitel(k, buch, stil)} -->"
         marker = None
         for marker in MARKER.finditer(text, 0, pos):
             pass

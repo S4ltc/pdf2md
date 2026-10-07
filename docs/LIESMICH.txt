@@ -14,12 +14,20 @@ Windows-Warnung beim ersten Start
 Bedienung
   "Hinzufügen …" oder Dateien ins Fenster ziehen (sie werden nach Eingang kopiert), dann "Starten".
   Ergebnisse: Fertig (Titel, Autor, Jahr gefunden) oder Prüfen (Angaben im Kopfblock der .md ergänzen, dann
-  erneut "Starten"). Werkzeuge: Rückgängig, Namen reparieren, Text erneuern – jeweils mit Vorschau.
+  erneut "Starten"). Werkzeuge: Rückgängig, Namen reparieren, Text erneuern, Literaturliste exportieren (BibTeX für
+  Citavi, Zotero, LaTeX) – jeweils mit Vorschau. Zitierstil (IEEE, APA 7, DIN ISO 690): Einstellungen.
+
+Updates
+  Oben im Fenster steht die Versionsnummer; gibt es eine neuere, erscheint "Version … verfügbar" (Klick öffnet die
+  Download-Seite). Zum Aktualisieren nur pdf2md.exe ersetzen, die Ordner und Einstellungen.json bleiben. Danach
+  Werkzeuge -> "Text erneuern".
 
 Datenschutz
   Alles läuft auf dem eigenen Rechner. Nur wenn Angaben fehlen bzw. für die Quellenangabe wird online nachgeschlagen:
   gesendet wird ausschließlich die DOI oder ISBN an Crossref und die Deutsche Nationalbibliothek, ohne Dateiinhalt,
-  Dateinamen oder persönliche Angaben. Abschalten: Einstellungen -> Online-Abgleich. Keine Telemetrie.
+  Dateinamen oder persönliche Angaben. Abschalten: Einstellungen -> Online-Abgleich. Beim Start fragt das Fenster
+  GitHub nach der neuesten Version (dabei sieht GitHub die IP-Adresse); abschalten: Einstellungen -> Nach Updates
+  suchen. Keine Telemetrie.
 
 Wichtig beim Zitieren
   Zitate, Zahlen, Formeln und Tabellenwerte immer im Original-PDF prüfen. Seitenangaben nur aus Markern mit
