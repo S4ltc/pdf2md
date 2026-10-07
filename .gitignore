@@ -1,0 +1,17 @@
+__pycache__/
+*.spec
+build/
+dist/
+Eingang/
+Fertig/
+Prüfen/
+Protokoll.csv
+Sicherung/
+.pytest_cache/
+Einstellungen.json
+Einstellungen.json.tmp
+CLAUDE.local.md
+.claude/
+paket/
+*.zip
+SHA256SUMS.txt

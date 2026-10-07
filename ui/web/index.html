@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pdf2md</title>
+<link rel="stylesheet" href="stil.css">
+</head>
+<body>
+<a class="sprungmarke" href="#inhalt">Zum Inhalt</a>
+
+<header class="kopf">
+  <div class="marke" aria-label="pdf2md">pdf2md</div>
+  <nav class="navigation" aria-label="Bereiche">
+    <button type="button" class="nav" data-seite="uebersicht" aria-current="page" aria-keyshortcuts="Control+1">Übersicht</button>
+    <button type="button" class="nav" data-seite="auswertung" aria-keyshortcuts="Control+2">Auswertung</button>
+    <button type="button" class="nav" data-seite="einstellungen" aria-keyshortcuts="Control+3">Einstellungen</button>
+  </nav>
+  <p id="status" class="status" role="status" aria-live="polite"></p>
+  <div class="aktionen">
+    <div class="menue">
+      <button type="button" id="werkzeuge-knopf" class="knopf" aria-haspopup="menu" aria-expanded="false" aria-controls="werkzeuge-menue">
+        Werkzeuge <span class="pfeil" aria-hidden="true"></span>
+      </button>
+      <ul id="werkzeuge-menue" class="menue-liste" role="menu" aria-labelledby="werkzeuge-knopf" hidden>
+        <li role="none"><button type="button" role="menuitem" data-werkzeug="rueckgaengig" tabindex="-1" aria-describedby="hilfe-rueckgaengig" data-tipp="links">Letzten Lauf rückgängig machen …</button></li>
+        <li role="none"><button type="button" role="menuitem" data-werkzeug="namen" tabindex="-1" aria-describedby="hilfe-namen" data-tipp="links">Namen reparieren …</button></li>
+        <li role="none"><button type="button" role="menuitem" data-werkzeug="text" tabindex="-1" aria-describedby="hilfe-text" data-tipp="links">Text erneuern …</button></li>
+      </ul>
+    </div>
+    <button type="button" id="hinzufuegen" class="knopf" aria-keyshortcuts="Control+O" title="Dateien nach Eingang kopieren (Strg+O)">Hinzufügen …</button>
+    <button type="button" id="starten" class="knopf haupt" aria-keyshortcuts="Control+Enter" title="Eingang verarbeiten, fertige Prüfen-Dateien übernehmen (Strg+Enter)">Starten</button>
+  </div>
+</header>
+
+<main id="inhalt" tabindex="-1">
+  <!-- Übersicht -->
+  <section id="seite-uebersicht" class="seite" aria-labelledby="titel-uebersicht">
+    <h1 id="titel-uebersicht" class="nur-vorlesen">Übersicht</h1>
+    <div class="spalten">
+      <section class="spalte" id="spalte-eingang" aria-labelledby="titel-eingang">
+        <header class="spalten-kopf">
+          <h2 id="titel-eingang">Eingang</h2>
+          <span class="anzahl" id="anzahl-eingang"></span>
+          <button type="button" class="knopf-text ordner-knopf" data-ordner="eingang" aria-label="Ordner Eingang im Explorer öffnen" title="Ordner Eingang im Explorer öffnen">Ordner</button>
+        </header>
+        <section id="lauf" class="lauf" aria-label="Aktuelle Umwandlung" hidden></section>
+        <h3 class="listen-titel" id="eingang-liste-titel" hidden>Warteschlange</h3>
+        <ul class="liste" id="liste-eingang" aria-labelledby="titel-eingang"></ul>
+        <p class="leer" id="leer-eingang" hidden>Keine Dateien. Mit „Hinzufügen“ oder per Ziehen ins Fenster nach Eingang kopieren.</p>
+        <div class="ablegen" id="ablegen" hidden><p>Dateien loslassen: sie werden nach Eingang kopiert.</p></div>
+      </section>
+      <section class="spalte" id="spalte-pruefen" aria-labelledby="titel-pruefen">
+        <header class="spalten-kopf">
+          <h2 id="titel-pruefen">Prüfen</h2>
+          <span class="anzahl" id="anzahl-pruefen"></span>
+          <button type="button" class="knopf-text ordner-knopf" data-ordner="pruefen" aria-label="Ordner Prüfen im Explorer öffnen" title="Ordner Prüfen im Explorer öffnen">Ordner</button>
+        </header>
+        <ul class="liste" id="liste-pruefen" aria-labelledby="titel-pruefen"></ul>
+        <p class="leer" id="leer-pruefen" hidden>Nichts zu prüfen.</p>
+      </section>
+      <section class="spalte" id="spalte-fertig" aria-labelledby="titel-fertig">
+        <header class="spalten-kopf">
+          <h2 id="titel-fertig">Fertig</h2>
+          <span class="anzahl" id="anzahl-fertig"></span>
+          <input type="search" id="filter-fertig" class="filter" placeholder="Filtern" aria-label="Fertig filtern" autocomplete="off" spellcheck="false">
+          <button type="button" class="knopf-text ordner-knopf" data-ordner="fertig" aria-label="Ordner Fertig im Explorer öffnen" title="Ordner Fertig im Explorer öffnen">Ordner</button>
+        </header>
+        <ul class="liste" id="liste-fertig" aria-labelledby="titel-fertig"></ul>
+        <p class="leer" id="leer-fertig" hidden>Noch nichts fertig.</p>
+      </section>
+    </div>
+
+    <section class="kennzahlen" aria-label="Kennzahlen">
+      <dl id="kennzahlen"></dl>
+    </section>
+
+    <div class="mini">
+      <figure class="diagramm-rahmen">
+        <figcaption>Dateien je Lauf</figcaption>
+        <div id="mini-laeufe" class="diagramm"></div>
+      </figure>
+      <figure class="diagramm-rahmen">
+        <figcaption>Herkunft der Metadaten</figcaption>
+        <div id="mini-herkunft" class="diagramm"></div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- Auswertung -->
+  <section id="seite-auswertung" class="seite" aria-labelledby="titel-auswertung" hidden>
+    <h1 id="titel-auswertung" class="seiten-titel">Auswertung</h1>
+    <section class="abschnitt" aria-labelledby="a-bestand">
+      <h2 id="a-bestand">Bestand und Durchsatz</h2>
+      <div class="raster">
+        <figure class="diagramm-rahmen"><figcaption>Dateien je Bereich</figcaption><div id="d-bereiche" class="diagramm"></div></figure>
+        <figure class="diagramm-rahmen"><figcaption>Formate</figcaption><div id="d-formate" class="diagramm"></div></figure>
+        <figure class="diagramm-rahmen"><figcaption>Seiten pro Minute je Lauf</figcaption><div id="d-tempo" class="diagramm"></div></figure>
+        <figure class="diagramm-rahmen"><figcaption>Dauer gegen Seitenzahl</figcaption><div id="d-dauer" class="diagramm"></div></figure>
+      </div>
+    </section>
+    <section class="abschnitt" aria-labelledby="a-metadaten">
+      <h2 id="a-metadaten">Metadaten-Qualität</h2>
+      <div class="raster">
+        <figure class="diagramm-rahmen breit"><figcaption>Herkunft von Titel, Autor und Jahr</figcaption><div id="d-herkunft" class="diagramm"></div></figure>
+        <figure class="diagramm-rahmen"><figcaption>Häufigste Prüfgründe</figcaption><div id="d-gruende" class="diagramm"></div></figure>
+        <figure class="diagramm-rahmen"><figcaption>Vollständige IEEE-Quellenangabe</figcaption><div id="d-ieee" class="diagramm"></div></figure>
+      </div>
+    </section>
+    <section class="abschnitt" aria-labelledby="a-text">
+      <h2 id="a-text">Text-Qualität</h2>
+      <p class="hinweis" id="text-hinweis"></p>
+      <dl class="summen" id="summen"></dl>
+      <h3>Bücher mit den meisten offenen Stellen</h3>
+      <div class="tabelle-rahmen">
+        <table class="tabelle" id="offene-stellen">
+          <thead><tr>
+            <th scope="col">Buch</th><th scope="col" class="zahl">Seiten</th><th scope="col" class="zahl">�</th>
+            <th scope="col" class="zahl">Formel unsicher</th><th scope="col" class="zahl">ohne Seitenzahl</th>
+            <th scope="col" class="zahl">je 100 Seiten</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <!-- Einstellungen -->
+  <section id="seite-einstellungen" class="seite" aria-labelledby="titel-einstellungen" hidden>
+    <div class="seiten-kopf">
+      <h1 id="titel-einstellungen" class="seiten-titel">Einstellungen</h1>
+      <p class="hinweis" id="einstellungen-datei"></p>
+      <button type="button" class="knopf" id="alle-zuruecksetzen">Alle zurücksetzen …</button>
+    </div>
+    <p class="sperre" id="einstellungen-sperre" hidden>Während eines Laufs gesperrt.</p>
+    <div id="einstellungen-normal"></div>
+    <details class="experte" id="experte">
+      <summary><span class="summary-titel">Experten-Werte</span> <span class="hinweis" id="experte-anzahl"></span></summary>
+      <p class="hinweis">Die Standardwerte sind an 58 Büchern und 56 Normen gemessen. Änderungen nur gezielt und mit Prüfung am Ergebnis.</p>
+      <div id="einstellungen-experte"></div>
+    </details>
+  </section>
+</main>
+
+<footer class="protokoll" id="protokoll">
+  <button type="button" class="protokoll-knopf" id="protokoll-knopf" aria-expanded="false" aria-controls="protokoll-liste">
+    <span class="pfeil" aria-hidden="true"></span><span class="protokoll-titel">Laufprotokoll</span>
+    <span class="protokoll-letzte" id="protokoll-letzte"></span>
+  </button>
+  <ol class="protokoll-liste" id="protokoll-liste" hidden aria-live="off"></ol>
+</footer>
+
+<dialog id="werkzeug-dialog" aria-labelledby="werkzeug-titel">
+  <form method="dialog">
+    <h2 id="werkzeug-titel"></h2>
+    <p id="werkzeug-hinweis" class="hinweis"></p>
+    <ol id="werkzeug-liste" class="vorschau-liste"></ol>
+    <div class="dialog-knoepfe">
+      <button type="submit" value="abbrechen" class="knopf" id="werkzeug-abbrechen" autofocus>Abbrechen</button>
+      <button type="submit" value="ausfuehren" class="knopf haupt" id="werkzeug-ausfuehren"></button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="frage-dialog" aria-labelledby="frage-titel">
+  <form method="dialog">
+    <h2 id="frage-titel"></h2>
+    <p id="frage-text"></p>
+    <div class="dialog-knoepfe">
+      <button type="submit" value="nein" class="knopf" id="frage-nein" autofocus></button>
+      <button type="submit" value="ja" class="knopf haupt" id="frage-ja"></button>
+    </div>
+  </form>
+</dialog>
+
+<div id="tooltip" class="tooltip" aria-hidden="true" hidden></div>
+<div class="nur-vorlesen">
+  <span id="hilfe-rueckgaengig">Dreht den letzten Lauf zurück: Originale gehen mit altem Namen an ihren alten Ort, die .md daneben. Gelöscht wird nichts, die Vorschau zeigt jede Datei.</span>
+  <span id="hilfe-namen">Benennt Original und .md in Fertig nach Titel, Autor und Jahr im Kopfblock um, etwa nach einer Korrektur im Kopfblock. Auch von Hand umbenannte Dateien werden zurückbenannt, deshalb erst die Vorschau prüfen.</span>
+  <span id="hilfe-text">Wandelt den Text der PDFs in Fertig mit dem aktuellen Verfahren neu um; Name und Kopfblock bleiben, die alte .md kommt nach Sicherung. Sinnvoll nach einem Update von pdf2md oder wenn Verfahren ein- oder ausgeschaltet wurden.</span>
+</div>
+
+<script src="diagramme.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+markitdown[pdf,docx,pptx,xlsx]
+pypdf
+pypdfium2
+defusedxml
+fonttools
+pillow
+numpy
+pywebview

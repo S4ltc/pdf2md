@@ -1,0 +1,30 @@
+pdf2md – Bücher, Normen und Dokumente in Markdown umwandeln
+===========================================================
+
+Start
+  pdf2md.exe in einen eigenen Ordner legen (zum Beispiel Dokumente\pdf2md, nicht "Programme") und doppelklicken.
+  Daneben entstehen die Ordner Eingang, Fertig, Prüfen, Sicherung sowie Protokoll.csv und Einstellungen.json.
+  Voraussetzung: Windows 10 oder 11 (64 Bit). Die Anzeige nutzt Microsoft Edge WebView2, das unter Windows 10/11
+  vorhanden ist.
+
+Windows-Warnung beim ersten Start
+  Die Datei ist nicht digital signiert. Windows SmartScreen zeigt deshalb "Der Computer wurde durch Windows
+  geschützt": "Weitere Informationen" -> "Trotzdem ausführen".
+
+Bedienung
+  "Hinzufügen …" oder Dateien ins Fenster ziehen (sie werden nach Eingang kopiert), dann "Starten".
+  Ergebnisse: Fertig (Titel, Autor, Jahr gefunden) oder Prüfen (Angaben im Kopfblock der .md ergänzen, dann
+  erneut "Starten"). Werkzeuge: Rückgängig, Namen reparieren, Text erneuern – jeweils mit Vorschau.
+
+Datenschutz
+  Alles läuft auf dem eigenen Rechner. Nur wenn Angaben fehlen bzw. für die Quellenangabe wird online nachgeschlagen:
+  gesendet wird ausschließlich die DOI oder ISBN an Crossref und die Deutsche Nationalbibliothek, ohne Dateiinhalt,
+  Dateinamen oder persönliche Angaben. Abschalten: Einstellungen -> Online-Abgleich. Keine Telemetrie.
+
+Wichtig beim Zitieren
+  Zitate, Zahlen, Formeln und Tabellenwerte immer im Original-PDF prüfen. Seitenangaben nur aus Markern mit
+  gedruckter Seitenzahl übernehmen: <!-- Seite 197 (PDF 206) --> heißt "S. 197".
+
+Lizenz
+  pdf2md steht unter der MIT-Lizenz (LICENSE.txt). Die Lizenzen der enthaltenen Bibliotheken und Schriften stehen
+  in DRITTLIZENZEN.txt. Quellcode und Anleitung: https://github.com/S4ltc/pdf2md
