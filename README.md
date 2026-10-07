@@ -546,6 +546,15 @@ Das Skript legt die virtuelle Umgebung unter `%LOCALAPPDATA%\pdf2md-venv` an (be
 und erzeugt `dist\pdf2md.exe` (Fenster-Anwendung, Einstieg `ui_app.py`, ohne Konsole). Läuft `pdf2md.exe` noch, bricht
 es ab. Ohne Build: `python ui_app.py` (mit `PDF2MD_ABLAGE=<ordner>` auf eine andere Ablage, zum Beispiel eine Kopie).
 
+### macOS und Linux (vorbereitet)
+
+Fertige Downloads gibt es nur für Windows. Der Code ist für macOS und Linux vorbereitet: alles, was je System
+anders ist, steht in `plattform.py` (Anzeige: WebKit auf dem Mac, QtWebEngine über PySide6 oder WebKitGTK unter
+Linux; Dateien öffnen, ein Fenster je Ordner, helles/dunkles Thema, Ort der Ablage). Die Tests laufen bei jedem Push
+auf Windows, macOS und Linux. Das Fenster selbst ist auf macOS und Linux noch nicht von Hand geprüft. Aus dem
+Quellcode starten: Python 3.13, `pip install -r requirements.txt`, `python ui_app.py`. Die Ablage liegt dann neben dem
+Skript, in einer gebauten App später im Dokumente-Ordner (`~/Documents/pdf2md`).
+
 ### Einstellungen
 
 Jede einstellbare Konstante steht genau einmal in `einstellungen.py` (Modul, Name, Typ, Bereich, Standard, Gruppe,

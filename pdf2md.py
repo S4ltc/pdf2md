@@ -68,6 +68,7 @@ try:
     import zitierdaten      # Quellenangabe im IEEE-Stil (Crossref/DNB ueber DOI/ISBN), Kapitel von Sammelwerken
 except Exception:           # pragma: no cover
     zitierdaten = None
+import plattform  # noqa: E402  Ablage, Anzeige und Oeffnen je Betriebssystem
 try:
     import schriftbild      # Schriftgroesse und Fett/Kursiv: Ueberschriften ohne Lesezeichen, Hervorhebungen
 except Exception:           # pragma: no cover
@@ -81,7 +82,7 @@ SPALTENBRUCH = getattr(lesefolge, "SPALTENBRUCH", "")   # Marker fuer eine er
 # ---------------------------------------------------------------- Einstellungen
 # Die Werte hier sind die Standardwerte. Das Fenster aendert sie ueber einstellungen.py (dort steht jede einstellbare
 # Konstante mit Bereich und Tooltip; neue Konstanten dort eintragen, sonst prueft der Test sie nicht).
-BASE_DIR = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve().parent
+BASE_DIR = plattform.ablage_basis(Path(__file__))   # Windows: neben der .exe; App auf macOS/Linux: Dokumente
 EINGANG = BASE_DIR / "Eingang"
 FERTIG = BASE_DIR / "Fertig"
 PRUEFEN = BASE_DIR / "Prüfen"
@@ -1767,7 +1768,9 @@ def namen_plan() -> list[dict]:
         if not (titel and autor and jahr) or original is None:
             continue
         soll = neuer_name(titel, autor, jahr, max_len=name_laenge(FERTIG, original.suffix))
-        if re.fullmatch(re.escape(soll) + r"(?: \(\d+\))?", md.stem, re.IGNORECASE):
+        # NFC auf beiden Seiten: macOS liefert Dateinamen oft zerlegt ("u" + Trema), der Kopfblock ist zusammengesetzt
+        if re.fullmatch(re.escape(unicodedata.normalize("NFC", soll)) + r"(?: \(\d+\))?",
+                        unicodedata.normalize("NFC", md.stem), re.IGNORECASE):
             continue  # Name stimmt (ein angehaengtes " (2)" bei Namensgleichheit ist in Ordnung)
         plan.append({"md": md, "original": original, "alt": md.stem, "neu": soll, "werte": werte})
     return plan

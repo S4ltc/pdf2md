@@ -184,6 +184,17 @@ class TestRueckgaengig:
 
 
 class TestNamenReparieren:
+    def test_zerlegter_umlaut_gilt_als_gleicher_name(self, arbeitsordner):
+        """macOS liefert Dateinamen oft zerlegt (NFD: "u" + Trema); der Kopfblock ist NFC. Ohne Normalisierung schlug
+        "Namen reparieren" jedes Mal eine Umbenennung in den gleich aussehenden Namen vor."""
+        import unicodedata
+        arbeitsordner.fertig.mkdir(exist_ok=True)
+        kopf = {"titel": "Prüftechnik", "autor": "Erika Muster", "jahr": "2023"}
+        name = unicodedata.normalize("NFD", "Prüftechnik - Erika Muster - 2023")
+        (arbeitsordner.fertig / f"{name}.md").write_text(p.kopf_schreiben(kopf) + "Text", encoding="utf-8")
+        (arbeitsordner.fertig / f"{name}.pdf").write_bytes(b"pdf")
+        assert p.namen_plan() == []
+
     def falsch_benanntes_paar(self, ordner):
         ordner.fertig.mkdir(exist_ok=True)
         kopf = {"titel": "Beispielelemente 1: Grundlagen der Berechnung", "autor": "Erika Muster", "jahr": "2023"}

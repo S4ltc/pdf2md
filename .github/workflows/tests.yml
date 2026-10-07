@@ -1,3 +1,6 @@
+# Tests bei jedem Push auf main, auf Windows, macOS und Linux. Die .exe gibt es nur fuer Windows; macOS und Linux
+# laufen hier mit, damit plattform.py und der restliche Code dort geprueft sind (siehe README, Abschnitt Systeme).
+# Fehlgeschlagene Tests erscheinen zusaetzlich als Hinweis am Lauf (auch ohne Anmeldung ueber die API lesbar).
 name: Tests
 
 on:
@@ -10,7 +13,13 @@ permissions:
 
 jobs:
   tests:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      COLUMNS: "250"          # Zusammenfassung der Fehler nicht auf 80 Zeichen kuerzen
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,4 +30,13 @@ jobs:
       - name: Abhängigkeiten
         run: python -m pip install -r requirements-dev.txt
       - name: Tests
-        run: python -m pytest
+        shell: bash
+        run: |
+          python -m pytest -rfE --tb=short 2>&1 | tee pytest.txt
+          exit ${PIPESTATUS[0]}
+      - name: Fehlgeschlagene Tests als Hinweis
+        if: failure()
+        shell: bash
+        run: |
+          zeilen=$(grep -E "^(FAILED|ERROR) " pytest.txt | head -40 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Tests auf ${{ matrix.os }}::${zeilen:-siehe Protokoll}"

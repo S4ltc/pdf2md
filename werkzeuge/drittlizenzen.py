@@ -62,7 +62,9 @@ def abhaengigkeiten() -> list[metadata.Distribution]:
     for zeile in (WURZEL / "requirements.txt").read_text(encoding="utf-8").splitlines():
         zeile = zeile.split("#", 1)[0].strip()
         if zeile and not zeile.startswith("-"):
-            offen.append(Requirement(zeile))
+            anforderung = Requirement(zeile)
+            if anforderung.marker is None or anforderung.marker.evaluate(umgebung):   # z.B. PySide6 nur unter Linux
+                offen.append(anforderung)
     gefunden: dict[str, metadata.Distribution] = {}
     while offen:
         anforderung = offen.pop()

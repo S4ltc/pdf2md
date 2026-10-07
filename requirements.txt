@@ -6,3 +6,6 @@ fonttools
 pillow
 numpy
 pywebview
+# Fenster unter Linux: QtWebEngine ueber PySide6 (LGPL; nicht PyQt6, das stuende unter GPL)
+PySide6; sys_platform == "linux"
+qtpy; sys_platform == "linux"

@@ -9,7 +9,6 @@ pywebview ruft jede Api-Methode in einem eigenen Thread auf: gemeinsamer Zustand
 der Api sind privat (Unterstrich), sonst versucht pywebview, sie fuer JavaScript freizugeben."""
 
 import copy
-import hashlib
 import multiprocessing
 import os
 import sys
@@ -23,6 +22,7 @@ import aktualisierung
 import auswertung
 import einstellungen
 import pdf2md
+import plattform
 
 WERKZEUGE = {
     "rueckgaengig": "Letzten Lauf rückgängig machen",
@@ -43,12 +43,8 @@ def web_ordner() -> Path:
 
 
 def extern_oeffnen(pfad: Path) -> None:
-    """Datei oder Ordner mit dem Standardprogramm von Windows oeffnen (PDF-Leser, Editor, Explorer)."""
-    if sys.platform == "win32":
-        os.startfile(str(pfad))
-    else:                                                    # pragma: no cover - das Tool ist fuer Windows gebaut
-        import subprocess
-        subprocess.Popen(["xdg-open", str(pfad)])
+    """Datei oder Ordner mit dem Standardprogramm oeffnen (PDF-Leser, Editor, Explorer); Tests ersetzen das."""
+    plattform.oeffnen(pfad)
 
 
 def link_oeffnen(adresse: str) -> None:
@@ -558,39 +554,16 @@ _MUTEX = None
 
 
 def einzelinstanz(basis: Path) -> bool:
-    """True, wenn fuer diesen Ordner noch kein Fenster offen ist (benannter Mutex, nur Windows)."""
-    global _MUTEX
-    if sys.platform != "win32":
-        return True
-    import ctypes
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateMutexW.restype = ctypes.c_void_p
-    name = "Local\\pdf2md-" + hashlib.sha1(str(Path(basis).resolve()).lower().encode("utf-8")).hexdigest()[:12]
-    griff = kernel32.CreateMutexW(None, False, name)
-    if ctypes.get_last_error() == 183:                      # ERROR_ALREADY_EXISTS
-        kernel32.CloseHandle(ctypes.c_void_p(griff))
-        return False
-    _MUTEX = griff                                           # Griff offen halten, solange das Programm laeuft
-    return True
+    """True, wenn fuer diesen Ordner noch kein Fenster offen ist (plattform.py: Mutex bzw. Sperrdatei)."""
+    return plattform.einzelinstanz(basis)
 
 
 def system_dunkel() -> bool:
-    """Windows-Einstellung "App-Modus dunkel" (fuer die Hintergrundfarbe vor dem ersten Zeichnen)."""
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as schluessel:
-            return winreg.QueryValueEx(schluessel, "AppsUseLightTheme")[0] == 0
-    except OSError:
-        return False
+    return plattform.dunkel()
 
 
 def meldung(text: str) -> None:
-    if sys.platform == "win32":
-        import ctypes
-        ctypes.windll.user32.MessageBoxW(None, text, "pdf2md", 0x40)
-    else:
-        print(text)
+    plattform.meldung(text)
 
 
 def main() -> int:
@@ -609,7 +582,7 @@ def main() -> int:
     api._fenster_setzen(fenster)
     fenster.events.closing += api._beim_schliessen
     fenster.events.loaded += api._beim_laden
-    webview.start(gui="edgechromium", private_mode=True)
+    webview.start(gui=plattform.gui(), private_mode=True)
     return 0
 
 
