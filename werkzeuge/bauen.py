@@ -3,7 +3,7 @@
 Aufruf (Werkzeug fuer den Build, nicht fuers Programm selbst):
   python werkzeuge/bauen.py [ausgabe]                     bauen (Standard: dist)
   python werkzeuge/bauen.py starttest [ausgabe]           gebautes Programm starten, Oberflaeche pruefen, schliessen
-  python werkzeuge/bauen.py paket NAME TAG [ausgabe]      Paket pdf2md-TAG-NAME.zip bzw. .tar.gz im Projektordner
+  python werkzeuge/bauen.py paket NAME TAG [ausgabe]      Paket pdf2md-TAG-NAME.zip bzw. .tar.xz im Projektordner
 
 Windows: eine pdf2md.exe (WebView2). macOS: pdf2md.app (WebKit; PyInstaller signiert ad hoc, nicht notarisiert).
 Linux: Ordner pdf2md/ mit QtWebEngine ueber PySide6 (LGPL: Ordner statt einer Datei, damit die Qt-Bibliotheken
@@ -65,7 +65,36 @@ def programm(ausgabe: Path) -> Path:
 
 def bauen(ausgabe: Path) -> int:
     arbeit = Path(tempfile.gettempdir()) / "pdf2md-build"
-    return subprocess.run([sys.executable, "-m", "PyInstaller", *pyinstaller_argumente(ausgabe, arbeit)]).returncode
+    code = subprocess.run([sys.executable, "-m", "PyInstaller", *pyinstaller_argumente(ausgabe, arbeit)]).returncode
+    if code == 0 and not windows() and not mac():
+        print(f"aufgeraeumt: {aufraeumen(ausgabe) / 1e6:.1f} MB")
+    return code
+
+
+# Sprachen, die im Linux-Paket bleiben: Chromium faellt ohne passende Sprachdatei auf en-US zurueck, Qt laedt seine
+# Uebersetzungen nur auf Anfrage (pdf2md fragt nie danach)
+SPRACHEN = ("de", "en", "en-US")
+
+
+def aufraeumen(ausgabe: Path) -> int:
+    """Entfernt aus dem Linux-Programmordner, was das Fenster nicht braucht, und gibt die gesparten Bytes zurueck.
+    Gemessen (Paketbericht): 45 MB Sprachdateien von Chromium, 10 MB Qt-Uebersetzungen, libpython mit 31 MB
+    Debug-Informationen. Die Entwicklerwerkzeuge (qtwebengine_devtools_resources.pak) bleiben: ob Qt WebEngine ohne
+    sie startet, ist nicht belegt."""
+    intern = ausgabe / "pdf2md" / "_internal"
+    uebersetzungen = intern / "PySide6" / "Qt" / "translations"
+    weg = [p for p in (uebersetzungen / "qtwebengine_locales").glob("*.pak") if p.stem not in SPRACHEN]
+    weg += [p for p in uebersetzungen.glob("*.qm") if p.stem.rpartition("_")[2] not in SPRACHEN]
+    gespart = sum(p.stat().st_size for p in weg)
+    for datei in weg:
+        datei.unlink()
+    for bibliothek in intern.glob("libpython3*.so*"):
+        # nur die Debug-Informationen: die Symbole braucht der Starter von PyInstaller (dlopen/dlsym)
+        if shutil.which("strip") and bibliothek.is_file() and not bibliothek.is_symlink():
+            groesse = bibliothek.stat().st_size
+            if subprocess.run(["strip", "--strip-debug", str(bibliothek)]).returncode == 0:
+                gespart += groesse - bibliothek.stat().st_size
+    return gespart
 
 
 def starttest(ausgabe: Path, bericht: Path) -> int:
@@ -117,7 +146,7 @@ def lizenzbericht(ordner: Path) -> dict:
                                       if k.lower().startswith(("pyside6", "shiboken6"))}}
 
 
-def groessenbericht(ordner: Path, anzahl: int = 15) -> dict:
+def groessenbericht(ordner: Path, anzahl: int = 50) -> dict:
     """Wo die Groesse eines Pakets steckt: entpackt gesamt, groesste Dateien und Ordner (je direkter Ordner)."""
     dateien = [(p.relative_to(ordner).as_posix(), p.stat().st_size) for p in ordner.rglob("*")
                if p.is_file() and not p.is_symlink()]
@@ -125,14 +154,14 @@ def groessenbericht(ordner: Path, anzahl: int = 15) -> dict:
     for name, groesse in dateien:
         oberordner = name.rpartition("/")[0] or "."
         je_ordner[oberordner] = je_ordner.get(oberordner, 0) + groesse
-    def mb(paare):                                     # eine Zeile je Eintrag, damit der Hinweis lesbar bleibt
-        return [f"{groesse / 1e6:6.1f} MB  {name}" for name, groesse in sorted(paare, key=lambda x: -x[1])[:anzahl]]
+    def mb(paare, n):                                  # eine Zeile je Eintrag, damit der Hinweis lesbar bleibt
+        return [f"{groesse / 1e6:6.1f} MB  {name}" for name, groesse in sorted(paare, key=lambda x: -x[1])[:n]]
     return {"entpackt_mb": round(sum(g for _, g in dateien) / 1e6, 1), "dateien": len(dateien),
-            "groesste_dateien": mb(dateien), "groesste_ordner": mb(je_ordner.items())}
+            "groesste_dateien": mb(dateien, anzahl), "groesste_ordner": mb(je_ordner.items(), 15)}
 
 
 def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Path:
-    """pdf2md-TAG-NAME.zip (Windows, macOS) bzw. .tar.gz (Linux) mit Programm, Lizenz, Fremdlizenzen und LIESMICH."""
+    """pdf2md-TAG-NAME.zip (Windows, macOS) bzw. .tar.xz (Linux) mit Programm, Lizenz, Fremdlizenzen und LIESMICH."""
     ordner = Path(tempfile.mkdtemp()) / "pdf2md"        # macOS: oberster Ordner im ZIP (ditto --keepParent)
     ordner.mkdir()
     if windows():
@@ -159,12 +188,12 @@ def _packen(ordner: Path, stamm: Path) -> Path:
         # ditto statt zipfile: erhaelt Verknuepfungen und Rechte im App-Paket
         subprocess.run(["ditto", "-c", "-k", "--keepParent", "--sequesterRsrc", str(ordner), str(archiv)], check=True)
         return archiv
-    archiv = Path(f"{stamm}.tar.gz")
+    archiv = Path(f"{stamm}.tar.xz")             # xz statt gzip: Qt WebEngine packt sich damit deutlich kleiner
     def ausfuehrbar(info: tarfile.TarInfo) -> tarfile.TarInfo:
         if info.name == "pdf2md/pdf2md":                  # auch wenn das Paket nicht unter Linux entsteht
             info.mode |= 0o755
         return info
-    with tarfile.open(archiv, "w:gz") as tar:
+    with tarfile.open(archiv, "w:xz") as tar:
         for eintrag in sorted(ordner.iterdir()):
             tar.add(eintrag, arcname=eintrag.name, filter=ausfuehrbar)
     return archiv

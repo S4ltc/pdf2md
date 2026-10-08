@@ -135,13 +135,32 @@ def einleitung(system: str = sys.platform) -> list[str]:
             "Die Anzeige nutzt Qt for Python (PySide6) mit Qt WebEngine unter der LGPL 3.0. Die Qt-Bibliotheken liegen",
             "als eigene Dateien im Unterordner _internal und dürfen gegen eigene Fassungen ausgetauscht werden; den",
             "Quellcode von Qt gibt es unter https://download.qt.io/official_releases/qt/ und den von PySide6 unter",
-            "https://download.qt.io/official_releases/QtForPython/. Qt WebEngine enthält Chromium; dessen Lizenzen",
-            "stehen bei Qt unter https://doc.qt.io/qt-6/qtwebengine-licensing.html."]
+            "https://download.qt.io/official_releases/QtForPython/. Die Texte der LGPL 3.0 und der GPL 3.0 stehen unten.",
+            "Qt WebEngine enthält Chromium; dessen Lizenzen stehen bei Qt unter",
+            "https://doc.qt.io/qt-6/qtwebengine-licensing.html."]
     return ["pdf2md – Lizenzen der mitgelieferten Bestandteile", "",
             f"pdf2md selbst steht unter der MIT-Lizenz (Datei LICENSE). {programm} enthält außerdem die",
             "folgenden Bestandteile Dritter. Ihre Lizenztexte stehen unten vollständig.", "", *anzeige,
             "Gebaut wurde mit PyInstaller; dessen Bootloader steht unter der GPL 2.0 mit einer Ausnahme, die",
             "ausdrücklich erlaubt, damit gebaute Programme unter eigener Lizenz zu verbreiten.", ""]
+
+
+GNU_TEXTE = Path("/usr/share/common-licenses")         # Debian/Ubuntu (Build-Umgebung auf GitHub)
+
+
+def gnu_texte(pakete: list, ordner: Path = GNU_TEXTE) -> list[tuple[str, str]]:
+    """Volltexte der LGPL 3.0 und der GPL 3.0, wenn Qt dabei ist: PySide6 und shiboken6 nennen die Lizenz nur, die
+    LGPL 3.0 verlangt aber beide Texte (sie baut auf der GPL 3.0 auf). Fehlen sie im Build-System, bricht der Bau ab,
+    statt ein Paket ohne Lizenztext zu liefern."""
+    if not any(name_normal(d.metadata["Name"]).startswith(("pyside6", "shiboken6")) for d in pakete):
+        return []
+    texte = []
+    for datei, titel in (("LGPL-3", "GNU Lesser General Public License 3.0 (Qt, PySide6, shiboken6)"),
+                         ("GPL-3", "GNU General Public License 3.0 (Grundlage der LGPL 3.0)")):
+        if not (ordner / datei).is_file():
+            raise SystemExit(f"{ordner / datei} fehlt: ohne den Text der {datei} darf Qt nicht weitergegeben werden")
+        texte.append((titel, (ordner / datei).read_text(encoding="utf-8", errors="replace")))
+    return texte
 
 
 def python_lizenz() -> Path | None:
@@ -167,6 +186,8 @@ def main() -> None:
     if lizenz is not None:
         teile += [trenner, f"Python {sys.version.split()[0]}", trenner, lizenz.read_text(encoding="utf-8",
                                                                                           errors="replace")]
+    for titel, text in gnu_texte(pakete):
+        teile += [trenner, titel, trenner, text]
     for dist in pakete:
         texte = lizenztexte(dist)
         teile += [trenner, f"{dist.metadata['Name']} {dist.version} – {lizenzangabe(dist)}", trenner]

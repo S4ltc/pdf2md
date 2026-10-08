@@ -83,7 +83,7 @@ class TestPaket:
         (ordner / "pdf2md").write_bytes(b"elf")
         (ordner / "_internal" / "lib.so").write_bytes(b"so")
         archiv = bauen.paket("linux-x86_64", "v9.9.9", tmp_path / "dist", tmp_path)
-        assert archiv.name == "pdf2md-v9.9.9-linux-x86_64.tar.gz"
+        assert archiv.name == "pdf2md-v9.9.9-linux-x86_64.tar.xz"
         namen = set(tarfile.open(archiv).getnames())
         assert {"pdf2md/pdf2md", "pdf2md/_internal/lib.so", "LICENSE.txt", "LIESMICH.txt",
                 "DRITTLIZENZEN.txt"} <= namen
@@ -98,6 +98,34 @@ class TestPaket:
         archiv = bauen.paket("macos-arm64", "v9.9.9", tmp_path / "dist", tmp_path)
         assert archiv.name == "pdf2md-v9.9.9-macos-arm64.zip"
         assert aufrufe[-1][:4] == ["ditto", "-c", "-k", "--keepParent"] and aufrufe[-1][-1] == str(archiv)
+
+
+class TestAufraeumen:
+    def test_nur_deutsch_und_englisch(self, tmp_path, monkeypatch):
+        """Chromium-Sprachdateien und Qt-Uebersetzungen ausser de/en entfallen; was das Fenster braucht, bleibt."""
+        monkeypatch.setattr(bauen.shutil, "which", lambda name: None)       # kein strip unter Windows
+        qt = tmp_path / "pdf2md" / "_internal" / "PySide6" / "Qt"
+        (qt / "translations" / "qtwebengine_locales").mkdir(parents=True)
+        (qt / "resources").mkdir()
+        for name in ("de.pak", "en-US.pak", "fr.pak", "pt-BR.pak"):
+            (qt / "translations" / "qtwebengine_locales" / name).write_bytes(b"x" * 100)
+        for name in ("qtbase_de.qm", "qt_en.qm", "qt_help_de.qm", "qtbase_fr.qm", "qt_pt_BR.qm"):
+            (qt / "translations" / name).write_bytes(b"x" * 10)
+        (qt / "resources" / "qtwebengine_devtools_resources.pak").write_bytes(b"x")
+        (qt / "resources" / "qtwebengine_resources.pak").write_bytes(b"x")
+        assert bauen.aufraeumen(tmp_path) == 220
+        assert sorted(p.name for p in qt.rglob("*") if p.is_file()) == [
+            "de.pak", "en-US.pak", "qt_en.qm", "qt_help_de.qm", "qtbase_de.qm", "qtwebengine_devtools_resources.pak",
+            "qtwebengine_resources.pak"]
+
+    def test_nur_unter_linux(self, system, tmp_path, monkeypatch):
+        aufrufe = []
+        monkeypatch.setattr(bauen.subprocess, "run", lambda befehl, **kw: subprocess.CompletedProcess(befehl, 0))
+        monkeypatch.setattr(bauen, "aufraeumen", lambda ausgabe: aufrufe.append(ausgabe) or 0)
+        for name in ("win32", "darwin", "linux"):
+            system(name)
+            assert bauen.bauen(tmp_path) == 0
+        assert aufrufe == [tmp_path]
 
 
 class FensterNachbau:
@@ -198,6 +226,23 @@ class TestLizenzen:
         assert bericht["eintraege"] == 4 and bericht["lgpl3_volltext"]
         assert bericht["ohne_lizenztext"] == ["leer 1.0 – MIT"] and bericht["nur_standardtext"] == ["qtpy 2.4 – MIT"]
         assert list(bericht["qt_lizenztext_zeichen"]) == ["PySide6 6.10 – LGPL"]
+
+    class Paket:
+        def __init__(self, name):
+            self.metadata = {"Name": name}
+
+    def test_gnu_texte_nur_mit_qt(self, drittlizenzen, tmp_path):
+        """PySide6 nennt die LGPL nur; ihr Text und der der GPL 3 (auf der sie aufbaut) kommen vom Build-System."""
+        (tmp_path / "LGPL-3").write_text("GNU LESSER GENERAL PUBLIC LICENSE\n  Version 3", encoding="utf-8")
+        (tmp_path / "GPL-3").write_text("GNU GENERAL PUBLIC LICENSE\n  Version 3", encoding="utf-8")
+        assert drittlizenzen.gnu_texte([self.Paket("pypdfium2")], tmp_path) == []
+        texte = drittlizenzen.gnu_texte([self.Paket("pypdfium2"), self.Paket("PySide6_Essentials")], tmp_path)
+        assert [t.split()[:4] for _, t in texte] == [["GNU", "LESSER", "GENERAL", "PUBLIC"],
+                                                     ["GNU", "GENERAL", "PUBLIC", "LICENSE"]]
+
+    def test_gnu_texte_fehlen_bricht_ab(self, drittlizenzen, tmp_path):
+        with pytest.raises(SystemExit, match="LGPL-3"):
+            drittlizenzen.gnu_texte([self.Paket("shiboken6")], tmp_path)
 
     def test_lgpl_nur_erwaehnt_zaehlt_nicht(self, tmp_path):
         """Die Lizenz von Python nennt die LGPL 2.1 (xz); das ist nicht der Text der LGPL 3 fuer Qt."""

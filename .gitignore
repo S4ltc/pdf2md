@@ -16,5 +16,6 @@ paket/
 *.zip
 SHA256SUMS.txt
 *.tar.gz
+*.tar.xz
 starttest.json
 paket.json

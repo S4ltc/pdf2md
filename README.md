@@ -22,7 +22,7 @@ Prüfsumme mit `SHA256SUMS.txt` aus dem Release (`Get-FileHash pdf2md-…-window
 entsteht automatisch auf einem Windows-Rechner von GitHub aus genau diesem Quellcode (`.github/workflows/release.yml`).
 
 **macOS und Linux (Vorschau):** Im Release liegen auch `pdf2md-…-macos-arm64.zip` (Apple Silicon),
-`…-macos-intel.zip` und `…-linux-x86_64.tar.gz`. Sie werden bei jedem Build auf GitHub automatisch gestartet und
+`…-macos-intel.zip` und `…-linux-x86_64.tar.xz`. Sie werden bei jedem Build auf GitHub automatisch gestartet und
 geprüft (siehe [macOS und Linux](#macos-und-linux-vorschau)), sind auf echten Geräten aber noch nicht von Hand
 getestet. macOS: die App ist nicht notarisiert, nach dem ersten Öffnungsversuch Systemeinstellungen → Datenschutz &
 Sicherheit → „Dennoch öffnen“. Die Arbeitsordner entstehen dort im Dokumente-Ordner unter `pdf2md`.
@@ -589,7 +589,7 @@ abweichenden Werten erzeugt, steht das im Kopfblock (`einstellungen: "abweichend
   sonst würde die Update-Suche falsch melden). Dann baut GitHub für Windows, macOS
   (Apple Silicon, Intel) und Linux, lässt je System alle Tests in derselben Umgebung und den Start-Test laufen,
   schreibt die Fremdlizenzen je System (`werkzeuge/drittlizenzen.py`) und legt das Release mit
-  `pdf2md-v1.1.0-windows.zip`, `…-macos-arm64.zip`, `…-macos-intel.zip`, `…-linux-x86_64.tar.gz` (jeweils mit
+  `pdf2md-v1.1.0-windows.zip`, `…-macos-arm64.zip`, `…-macos-intel.zip`, `…-linux-x86_64.tar.xz` (jeweils mit
   `LICENSE.txt`, `DRITTLIZENZEN.txt`, `LIESMICH.txt`) und `SHA256SUMS.txt` an.
 - **Nichts Persönliches veröffentlichen:** Releases nur von GitHub bauen lassen, nicht die eigene `.exe` hochladen.
   Vor jedem Push prüfen: keine Pfade mit dem eigenen Benutzernamen, keine Kunden-/Abonummern aus Normen, kein
