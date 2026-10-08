@@ -49,6 +49,8 @@ class TestArgumente:
         system("linux")
         a = self.args(tmp_path)
         assert "--onefile" not in a and "webview.platforms.qt" in a and "PySide6.QtWebEngineWidgets" in a
+        ausgeschlossen = [a[i + 1] for i, x in enumerate(a) if x == "--exclude-module"]
+        assert "PySide6.QtQml" in ausgeschlossen and "PySide6.QtWebEngineCore" not in ausgeschlossen
 
     def test_daten_mit_dem_trenner_des_systems(self, tmp_path):
         a = self.args(tmp_path)
@@ -175,6 +177,26 @@ class TestStarttestAuswerten:
                             lambda befehl, env, **kw: subprocess.CompletedProcess(befehl, 1, "", "Absturz"))
         assert bauen.starttest(tmp_path, tmp_path / "starttest.json") == 1
         assert "Absturz" in json.loads((tmp_path / "starttest.json").read_text(encoding="utf-8"))["ausgabe"]
+
+
+class TestHinweise:
+    def test_lange_berichte_geteilt_und_maskiert(self, tmp_path):
+        """GitHub kuerzt einen Hinweis nach rund 4000 Zeichen; Zeilenumbrueche und % muessen maskiert sein."""
+        (tmp_path / "starttest.json").write_text(json.dumps({"ok": True, "gui": "qt", "ausgabe": "Zeile 1\n100 %"}),
+                                                 encoding="utf-8")
+        (tmp_path / "paket.json").write_text(json.dumps({"groesse_mb": 1.0, "liste": ["x" * 50] * 150}, indent=1),
+                                             encoding="utf-8")
+        zeilen = bauen.hinweise("linux-x86_64", tmp_path)
+        assert zeilen[0].startswith("::notice title=Start-Test linux-x86_64::OK ") and "Zeile 1%0A100 %25" in zeilen[0]
+        pakete = zeilen[1:]
+        assert len(pakete) == 3 and pakete[0].startswith("::notice title=Paket linux-x86_64 (1/3)::{%0A")
+        assert all("\n" not in z and len(z) < 4000 for z in zeilen)
+        zusammen = "".join(z.split("::", 2)[2] for z in pakete).replace("%0A", "\n").replace("%25", "%")
+        assert json.loads(zusammen)["groesse_mb"] == 1.0
+
+    def test_ohne_ergebnisse(self, tmp_path):
+        assert bauen.hinweise("windows", tmp_path) == [
+            "::notice title=Start-Test windows::nicht gelaufen (Build fehlgeschlagen?)"]
 
 
 def test_linux_ohne_chromium_sandbox(monkeypatch):

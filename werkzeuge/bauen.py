@@ -4,6 +4,7 @@ Aufruf (Werkzeug fuer den Build, nicht fuers Programm selbst):
   python werkzeuge/bauen.py [ausgabe]                     bauen (Standard: dist)
   python werkzeuge/bauen.py starttest [ausgabe]           gebautes Programm starten, Oberflaeche pruefen, schliessen
   python werkzeuge/bauen.py paket NAME TAG [ausgabe]      Paket pdf2md-TAG-NAME.zip bzw. .tar.xz im Projektordner
+  python werkzeuge/bauen.py hinweise NAME                 Ergebnisse als GitHub-Hinweise ausgeben (bauen.yml)
 
 Windows: eine pdf2md.exe (WebView2). macOS: pdf2md.app (WebKit; PyInstaller signiert ad hoc, nicht notarisiert).
 Linux: Ordner pdf2md/ mit QtWebEngine ueber PySide6 (LGPL: Ordner statt einer Datei, damit die Qt-Bibliotheken
@@ -52,6 +53,11 @@ def pyinstaller_argumente(ausgabe: Path, arbeit: Path) -> list[str]:
         for modul in ("QtCore", "QtGui", "QtWidgets", "QtNetwork", "QtWebChannel", "QtWebEngineCore",
                       "QtWebEngineWidgets"):
             args += ["--hidden-import", f"qtpy.{modul}", "--hidden-import", f"PySide6.{modul}"]
+        # libQt6WebEngineCore braucht Qt Quick und QML als Bibliotheken (die kommen ueber die Abhaengigkeiten mit),
+        # das Fenster aber keine QML-Module. Ueber die Python-Module QtQml/QtQuick zog PyInstaller alle QML-Module
+        # samt ihrer Bibliotheken mit (Quick 3D, Controls-Stile, Graphs, Qt 3D, ...).
+        for modul in ("QtQml", "QtQuick", "QtQuickWidgets"):
+            args += ["--exclude-module", f"PySide6.{modul}"]
     return args + [str(WURZEL / "ui_app.py")]
 
 
@@ -173,9 +179,10 @@ def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Pat
     shutil.copy2(WURZEL / "LICENSE", ordner / "LICENSE.txt")
     shutil.copy2(WURZEL / "docs" / "LIESMICH.txt", ordner / "LIESMICH.txt")
     drittlizenzen(ordner / "DRITTLIZENZEN.txt")
-    bericht = {**lizenzbericht(ordner), **groessenbericht(ordner)}
+    lizenzen, groessen = lizenzbericht(ordner), groessenbericht(ordner)
     archiv = _packen(ordner, ziel_ordner / f"pdf2md-{tag}-{name}")
-    bericht.update(archiv=archiv.name, groesse_mb=round(archiv.stat().st_size / 1e6, 1) if archiv.exists() else None)
+    bericht = {"archiv": archiv.name, "groesse_mb": round(archiv.stat().st_size / 1e6, 1) if archiv.exists() else None,
+               **lizenzen, **groessen}                 # das Wichtigste zuerst, falls ein Hinweis gekuerzt wird
     (ziel_ordner / "paket.json").write_text(json.dumps(bericht, ensure_ascii=False, indent=1), encoding="utf-8")
     return archiv
 
@@ -199,7 +206,34 @@ def _packen(ordner: Path, stamm: Path) -> Path:
     return archiv
 
 
+HINWEIS_LAENGE = 3000      # GitHub kuerzt einen Hinweis nach rund 4000 Zeichen (gemessen: 4062), laengere werden geteilt
+
+
+def hinweise(name: str, wurzel: Path = WURZEL) -> list[str]:
+    """Ergebnis von Start-Test und Paket als GitHub-Hinweise (::notice), ohne Anmeldung ueber die API lesbar."""
+    test = wurzel / "starttest.json"
+    if test.exists():
+        d = json.loads(test.read_text(encoding="utf-8"))
+        kurz = {k: d.get(k) for k in ("gui", "angezeigt", "fehler", "rueckgabe")}
+        meldungen = [(f"Start-Test {name}", ("OK " if d.get("ok") else "FEHLER ") + json.dumps(kurz, ensure_ascii=False)
+                      + "\n" + (d.get("ausgabe") or "")[-2500:])]
+    else:
+        meldungen = [(f"Start-Test {name}", "nicht gelaufen (Build fehlgeschlagen?)")]
+    if (wurzel / "paket.json").exists():
+        text = (wurzel / "paket.json").read_text(encoding="utf-8")
+        teile = [text[i:i + HINWEIS_LAENGE] for i in range(0, len(text), HINWEIS_LAENGE)]
+        meldungen += [(f"Paket {name}" + (f" ({n}/{len(teile)})" if len(teile) > 1 else ""), teil)
+                      for n, teil in enumerate(teile, 1)]
+    def maskiert(text: str) -> str:
+        return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return [f"::notice title={maskiert(titel)}::{maskiert(text)}" for titel, text in meldungen]
+
+
 def main(argumente: list[str]) -> int:
+    if argumente[:1] == ["hinweise"]:
+        sys.stdout.reconfigure(encoding="utf-8")       # Windows-Runner: sonst cp1252 und kein „–“
+        print("\n".join(hinweise(argumente[1])))
+        return 0
     if argumente[:1] == ["starttest"]:
         ausgabe = Path(argumente[1]) if len(argumente) > 1 else WURZEL / "dist"
         return starttest(ausgabe, WURZEL / "starttest.json")

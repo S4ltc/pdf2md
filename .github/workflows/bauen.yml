@@ -75,17 +75,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Ergebnis des Start-Tests als Hinweis
+      - name: Ergebnisse von Start-Test und Paket als Hinweis
         if: always()
         shell: bash
-        run: |
-          if [ -f starttest.json ]; then
-            text=$(python -c "import json; d=json.load(open('starttest.json', encoding='utf-8')); print(('OK ' if d.get('ok') else 'FEHLER ') + json.dumps({k: d.get(k) for k in ('gui', 'angezeigt', 'fehler', 'rueckgabe')}, ensure_ascii=False)); print((d.get('ausgabe') or '')[-2500:])" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
-            echo "::notice title=Start-Test ${{ matrix.name }}::$text"
-          else
-            echo "::notice title=Start-Test ${{ matrix.name }}::nicht gelaufen (Build fehlgeschlagen?)"
-          fi
-          if [ -f paket.json ]; then
-            text=$(sed 's/%/%25/g' paket.json | awk '{printf "%s%%0A", $0}')
-            echo "::notice title=Paket ${{ matrix.name }}::$text"
-          fi
+        run: python werkzeuge/bauen.py hinweise "${{ matrix.name }}"
