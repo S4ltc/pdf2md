@@ -181,12 +181,38 @@ class TestLizenzen:
         assert programm in text and engine in text
         assert ("WebView2" in text) == (name == "win32")
 
-    def test_bericht_ueber_das_paket(self, tmp_path):
-        (tmp_path / "pdf2md" / "_internal").mkdir(parents=True)
-        (tmp_path / "pdf2md" / "_internal" / "LICENSE.Chromium").write_text("x", encoding="utf-8")
+    @staticmethod
+    def abschnitt(kopf, inhalt):
+        return f"{'=' * 79}\n{kopf}\n{'=' * 79}\n{inhalt}\n"
+
+    def test_bericht_ueber_die_lizenzen(self, tmp_path):
         (tmp_path / "DRITTLIZENZEN.txt").write_text(
-            "Kopf\n\nPython 3.13 – PSF\nPySide6 6.10 – LGPL\nqtpy 2.4 – MIT\n\n===\nGNU LESSER GENERAL PUBLIC LICENSE\n"
-            "Chromium Chromium\n", encoding="utf-8")
+            "Kopf\n\nPython 3.13 – PSF\nPySide6 6.10 – LGPL\nqtpy 2.4 – MIT\nleer 1.0 – MIT\n\n"
+            + self.abschnitt("Python 3.13", "XZ\n======\n- COPYING.LGPLv2.1: GNU Lesser General Public License")
+            + self.abschnitt("PySide6 6.10 – LGPL", "--- LICENSES/LGPL-3.0.txt\nGNU LESSER GENERAL PUBLIC LICENSE\n"
+                                                    "                       Version 3, 29 June 2007")
+            + self.abschnitt("qtpy 2.4 – MIT", "--- Standardtext MIT (im Paket nicht enthalten)\nPermission ...")
+            + self.abschnitt("leer 1.0 – MIT", "(kein Lizenztext im Paket; Lizenzangabe siehe oben, Quelle: PyPI)"),
+            encoding="utf-8")
         bericht = bauen.lizenzbericht(tmp_path)
-        assert bericht["lgpl"] and bericht["chromium"] == 2 and bericht["eintraege"] == 3
-        assert bericht["lizenzdateien_im_programm"] == ["pdf2md/_internal/LICENSE.Chromium"]
+        assert bericht["eintraege"] == 4 and bericht["lgpl3_volltext"]
+        assert bericht["ohne_lizenztext"] == ["leer 1.0 – MIT"] and bericht["nur_standardtext"] == ["qtpy 2.4 – MIT"]
+        assert list(bericht["qt_lizenztext_zeichen"]) == ["PySide6 6.10 – LGPL"]
+
+    def test_lgpl_nur_erwaehnt_zaehlt_nicht(self, tmp_path):
+        """Die Lizenz von Python nennt die LGPL 2.1 (xz); das ist nicht der Text der LGPL 3 fuer Qt."""
+        (tmp_path / "DRITTLIZENZEN.txt").write_text(
+            "Kopf\n\n" + self.abschnitt("Python 3.13", "- COPYING.LGPLv2.1: GNU Lesser General Public License"),
+            encoding="utf-8")
+        assert not bauen.lizenzbericht(tmp_path)["lgpl3_volltext"]
+
+    def test_groessenbericht(self, tmp_path):
+        (tmp_path / "pdf2md" / "_internal" / "Qt").mkdir(parents=True)
+        (tmp_path / "pdf2md" / "_internal" / "Qt" / "gross.so").write_bytes(b"x" * 3_000_000)
+        (tmp_path / "pdf2md" / "_internal" / "Qt" / "klein.so").write_bytes(b"x" * 1_000_000)
+        (tmp_path / "LICENSE.txt").write_bytes(b"x" * 100_000)
+        bericht = bauen.groessenbericht(tmp_path, anzahl=2)
+        assert bericht["entpackt_mb"] == 4.1 and bericht["dateien"] == 3
+        assert bericht["groesste_dateien"] == ["   3.0 MB  pdf2md/_internal/Qt/gross.so",
+                                               "   1.0 MB  pdf2md/_internal/Qt/klein.so"]
+        assert bericht["groesste_ordner"] == ["   4.0 MB  pdf2md/_internal/Qt", "   0.1 MB  ."]

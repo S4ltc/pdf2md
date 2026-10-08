@@ -47,7 +47,7 @@ def pyinstaller_argumente(ausgabe: Path, arbeit: Path) -> list[str]:
     elif mac():
         args += ["--hidden-import", "webview.platforms.cocoa", "--osx-bundle-identifier", "io.github.s4ltc.pdf2md"]
     else:
-        # nur die Qt-Module, die pywebview braucht (alle qtpy-Untermodule zogen ganz Qt mit: 346 MB statt ~100 MB)
+        # nur die Qt-Module, die pywebview braucht (alle qtpy-Untermodule zogen 3D, Multimedia usw. mit: 346 statt 323 MB)
         args += ["--hidden-import", "webview.platforms.qt"]
         for modul in ("QtCore", "QtGui", "QtWidgets", "QtNetwork", "QtWebChannel", "QtWebEngineCore",
                       "QtWebEngineWidgets"):
@@ -97,19 +97,38 @@ def drittlizenzen(ziel: Path) -> None:
     subprocess.run([sys.executable, str(WURZEL / "werkzeuge" / "drittlizenzen.py"), str(ziel)], check=True)
 
 
-LIZENZNAME = re.compile(r"licen[cs]e|copying|notice|credits|thirdparty|third_party", re.IGNORECASE)
+TRENNER = re.compile(r"^={79}$", re.MULTILINE)      # wie in drittlizenzen.py
+LGPL3 = re.compile(r"GNU LESSER GENERAL PUBLIC LICENSE\s+Version 3", re.IGNORECASE)
 
 
 def lizenzbericht(ordner: Path) -> dict:
-    """Kurzer Bericht ueber ein Paket, damit sich die Fremdlizenzen ohne Download pruefen lassen (Hinweis am Lauf):
-    Eintraege der Uebersicht, ob die LGPL (Qt) und Chromium vorkommen, Lizenzdateien im Programm selbst."""
+    """Bericht ueber DRITTLIZENZEN.txt, damit sich ein Paket ohne Download pruefen laesst (Hinweis am Lauf): Eintraege
+    der Uebersicht, Pakete ohne eigenen Lizenztext, ob der volle Text der LGPL 3 dabei ist (Qt unter Linux) und wie
+    lang die Texte der Qt-Pakete sind. Ein blosses Vorkommen von "LGPL" reicht nicht: die Python-Lizenz nennt sie
+    schon (xz)."""
     text = (ordner / "DRITTLIZENZEN.txt").read_text(encoding="utf-8", errors="replace")
-    uebersicht = text.split("===", 1)[0]
-    dateien = sorted(p.relative_to(ordner).as_posix() for p in ordner.rglob("*")
-                     if p.is_file() and p.parent != ordner and LIZENZNAME.search(p.name))
-    return {"eintraege": sum(1 for z in uebersicht.splitlines() if " – " in z),
-            "lgpl": "GNU LESSER GENERAL PUBLIC LICENSE" in text.upper(), "chromium": text.count("Chromium"),
-            "lizenzdateien_im_programm": dateien[:40], "lizenzdateien_anzahl": len(dateien)}
+    teile = TRENNER.split(text)                        # Uebersicht, Kopf 1, Inhalt 1, Kopf 2, Inhalt 2, ...
+    abschnitte = {teile[i].strip(): teile[i + 1] for i in range(1, len(teile) - 1, 2)}
+    return {"eintraege": sum(1 for z in teile[0].splitlines() if " – " in z),
+            "ohne_lizenztext": [k for k, inhalt in abschnitte.items() if "(kein Lizenztext im Paket" in inhalt],
+            "nur_standardtext": [k for k, inhalt in abschnitte.items() if "--- Standardtext" in inhalt],
+            "lgpl3_volltext": bool(LGPL3.search(text)),
+            "qt_lizenztext_zeichen": {k: len(inhalt.strip()) for k, inhalt in abschnitte.items()
+                                      if k.lower().startswith(("pyside6", "shiboken6"))}}
+
+
+def groessenbericht(ordner: Path, anzahl: int = 15) -> dict:
+    """Wo die Groesse eines Pakets steckt: entpackt gesamt, groesste Dateien und Ordner (je direkter Ordner)."""
+    dateien = [(p.relative_to(ordner).as_posix(), p.stat().st_size) for p in ordner.rglob("*")
+               if p.is_file() and not p.is_symlink()]
+    je_ordner: dict[str, int] = {}
+    for name, groesse in dateien:
+        oberordner = name.rpartition("/")[0] or "."
+        je_ordner[oberordner] = je_ordner.get(oberordner, 0) + groesse
+    def mb(paare):                                     # eine Zeile je Eintrag, damit der Hinweis lesbar bleibt
+        return [f"{groesse / 1e6:6.1f} MB  {name}" for name, groesse in sorted(paare, key=lambda x: -x[1])[:anzahl]]
+    return {"entpackt_mb": round(sum(g for _, g in dateien) / 1e6, 1), "dateien": len(dateien),
+            "groesste_dateien": mb(dateien), "groesste_ordner": mb(je_ordner.items())}
 
 
 def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Path:
@@ -125,7 +144,7 @@ def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Pat
     shutil.copy2(WURZEL / "LICENSE", ordner / "LICENSE.txt")
     shutil.copy2(WURZEL / "docs" / "LIESMICH.txt", ordner / "LIESMICH.txt")
     drittlizenzen(ordner / "DRITTLIZENZEN.txt")
-    bericht = lizenzbericht(ordner)
+    bericht = {**lizenzbericht(ordner), **groessenbericht(ordner)}
     archiv = _packen(ordner, ziel_ordner / f"pdf2md-{tag}-{name}")
     bericht.update(archiv=archiv.name, groesse_mb=round(archiv.stat().st_size / 1e6, 1) if archiv.exists() else None)
     (ziel_ordner / "paket.json").write_text(json.dumps(bericht, ensure_ascii=False, indent=1), encoding="utf-8")
