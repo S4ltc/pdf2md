@@ -85,3 +85,7 @@ jobs:
           else
             echo "::notice title=Start-Test ${{ matrix.name }}::nicht gelaufen (Build fehlgeschlagen?)"
           fi
+          if [ -f paket.json ]; then
+            text=$(sed 's/%/%25/g' paket.json | awk '{printf "%s%%0A", $0}')
+            echo "::notice title=Paket ${{ matrix.name }}::$text"
+          fi

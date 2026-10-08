@@ -163,3 +163,30 @@ def test_linux_ohne_chromium_sandbox(monkeypatch):
     monkeypatch.setattr(plattform, "SYSTEM", "win32")
     plattform.vorbereiten()
     assert "QTWEBENGINE_DISABLE_SANDBOX" not in os.environ
+
+
+class TestLizenzen:
+    @pytest.fixture
+    def drittlizenzen(self):
+        spec = importlib.util.spec_from_file_location("drittlizenzen", WURZEL / "werkzeuge" / "drittlizenzen.py")
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        return modul
+
+    @pytest.mark.parametrize("name, programm, engine", [("win32", "pdf2md.exe", "WebView2"),
+                                                        ("darwin", "pdf2md.app", "WebKit"),
+                                                        ("linux", "Programmordner pdf2md", "LGPL")])
+    def test_einleitung_je_system(self, drittlizenzen, name, programm, engine):
+        text = "\n".join(drittlizenzen.einleitung(name))
+        assert programm in text and engine in text
+        assert ("WebView2" in text) == (name == "win32")
+
+    def test_bericht_ueber_das_paket(self, tmp_path):
+        (tmp_path / "pdf2md" / "_internal").mkdir(parents=True)
+        (tmp_path / "pdf2md" / "_internal" / "LICENSE.Chromium").write_text("x", encoding="utf-8")
+        (tmp_path / "DRITTLIZENZEN.txt").write_text(
+            "Kopf\n\nPython 3.13 – PSF\nPySide6 6.10 – LGPL\nqtpy 2.4 – MIT\n\n===\nGNU LESSER GENERAL PUBLIC LICENSE\n"
+            "Chromium Chromium\n", encoding="utf-8")
+        bericht = bauen.lizenzbericht(tmp_path)
+        assert bericht["lgpl"] and bericht["chromium"] == 2 and bericht["eintraege"] == 3
+        assert bericht["lizenzdateien_im_programm"] == ["pdf2md/_internal/LICENSE.Chromium"]

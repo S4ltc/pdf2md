@@ -1,4 +1,5 @@
-"""Schreibt die Lizenzen aller Bestandteile, die in pdf2md.exe stecken, in eine Textdatei (fuer das Release-Paket).
+"""Schreibt die Lizenzen aller Bestandteile, die im gebauten Programm stecken (pdf2md.exe, pdf2md.app bzw. der
+Programmordner unter Linux), in eine Textdatei fuer das Release-Paket.
 
 Ermittelt aus requirements.txt alle installierten Pakete samt Abhaengigkeiten (mit Extras und Umgebungsmarkern),
 dazu Python selbst und die mitgelieferten Schriften. Je Paket: Name, Version, Lizenzangabe und die mitgelieferten
@@ -121,30 +122,51 @@ def lizenztexte(dist: metadata.Distribution) -> list[tuple[str, str]]:
     return texte
 
 
+def einleitung(system: str = sys.platform) -> list[str]:
+    """Kopf der Datei: was im Programm steckt und was das System beisteuert (je Betriebssystem verschieden)."""
+    if system == "win32":
+        programm, anzeige = "Die Programmdatei pdf2md.exe", [
+            "Nicht enthalten, sondern vom System genutzt: Microsoft Edge WebView2 (Teil von Windows 10/11)."]
+    elif system == "darwin":
+        programm, anzeige = "Die App pdf2md.app", [
+            "Nicht enthalten, sondern vom System genutzt: WebKit (Teil von macOS)."]
+    else:
+        programm, anzeige = "Der Programmordner pdf2md", [
+            "Die Anzeige nutzt Qt for Python (PySide6) mit Qt WebEngine unter der LGPL 3.0. Die Qt-Bibliotheken liegen",
+            "als eigene Dateien im Unterordner _internal und dürfen gegen eigene Fassungen ausgetauscht werden; den",
+            "Quellcode von Qt gibt es unter https://download.qt.io/official_releases/qt/ und den von PySide6 unter",
+            "https://download.qt.io/official_releases/QtForPython/. Qt WebEngine enthält Chromium; dessen Lizenzen",
+            "stehen bei Qt unter https://doc.qt.io/qt-6/qtwebengine-licensing.html."]
+    return ["pdf2md – Lizenzen der mitgelieferten Bestandteile", "",
+            f"pdf2md selbst steht unter der MIT-Lizenz (Datei LICENSE). {programm} enthält außerdem die",
+            "folgenden Bestandteile Dritter. Ihre Lizenztexte stehen unten vollständig.", "", *anzeige,
+            "Gebaut wurde mit PyInstaller; dessen Bootloader steht unter der GPL 2.0 mit einer Ausnahme, die",
+            "ausdrücklich erlaubt, damit gebaute Programme unter eigener Lizenz zu verbreiten.", ""]
+
+
+def python_lizenz() -> Path | None:
+    """Lizenz von Python: unter Windows neben python.exe, sonst in lib/python3.x."""
+    version = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    for kandidat in (Path(sys.base_prefix) / "LICENSE.txt", Path(sys.base_prefix) / "lib" / version / "LICENSE.txt"):
+        if kandidat.is_file():
+            return kandidat
+    return None
+
+
 def main() -> None:
     ziel = Path(sys.argv[1])
     trenner = "=" * 79
-    teile = [
-        "pdf2md – Lizenzen der mitgelieferten Bestandteile",
-        "",
-        "pdf2md selbst steht unter der MIT-Lizenz (Datei LICENSE). Die Programmdatei pdf2md.exe enthält außerdem die",
-        "folgenden Bestandteile Dritter. Ihre Lizenztexte stehen unten vollständig.",
-        "",
-        "Nicht enthalten, sondern vom System genutzt: Microsoft Edge WebView2 (Teil von Windows 10/11).",
-        "Die .exe wurde mit PyInstaller gebaut; dessen Bootloader steht unter der GPL 2.0 mit einer Ausnahme, die",
-        "ausdrücklich erlaubt, damit gebaute Programme unter eigener Lizenz zu verbreiten.",
-        "",
-    ]
+    teile = einleitung()
     pakete = abhaengigkeiten()
     teile.append(f"Python {sys.version.split()[0]} – Python Software Foundation License")
     for dist in pakete:
         teile.append(f"{dist.metadata['Name']} {dist.version} – {lizenzangabe(dist)}")
     teile += ["STIX Two/STIXGeneral (Schrift) – SIL Open Font License 1.1", "DejaVu Sans (Schrift) – Bitstream Vera / "
               "DejaVu-Lizenz (frei)", ""]
-    python_lizenz = Path(sys.base_prefix) / "LICENSE.txt"
-    if python_lizenz.is_file():
-        teile += [trenner, f"Python {sys.version.split()[0]}", trenner, python_lizenz.read_text(encoding="utf-8",
-                                                                                                 errors="replace")]
+    lizenz = python_lizenz()
+    if lizenz is not None:
+        teile += [trenner, f"Python {sys.version.split()[0]}", trenner, lizenz.read_text(encoding="utf-8",
+                                                                                          errors="replace")]
     for dist in pakete:
         texte = lizenztexte(dist)
         teile += [trenner, f"{dist.metadata['Name']} {dist.version} – {lizenzangabe(dist)}", trenner]
@@ -155,7 +177,7 @@ def main() -> None:
             teile += [f"--- {name}", text.strip(), ""]
     for datei, titel in (("LICENSE_STIX", "STIX-Schriften"), ("LICENSE_DEJAVU", "DejaVu-Schriften")):
         teile += [trenner, titel, trenner, (WURZEL / "schriften" / datei).read_text(encoding="utf-8", errors="replace")]
-    ziel.write_text("\n".join(teile) + "\n", encoding="utf-8", newline="\r\n")
+    ziel.write_text("\n".join(teile) + "\n", encoding="utf-8", newline="\r\n" if sys.platform == "win32" else "\n")
     print(f"{ziel}: {len(pakete)} Pakete, {ziel.stat().st_size // 1024} KB")
 
 

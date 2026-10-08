@@ -17,3 +17,4 @@ paket/
 SHA256SUMS.txt
 *.tar.gz
 starttest.json
+paket.json

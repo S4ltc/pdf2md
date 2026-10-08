@@ -11,6 +11,7 @@ austauschbar bleiben). Der Start-Test setzt PDF2MD_STARTTEST (ui_app._starttest)
 unter Linux ohne Bildschirm laeuft er in xvfb-run. Gebaut wird fuer Releases nur auf GitHub (bauen.yml)."""
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -46,9 +47,11 @@ def pyinstaller_argumente(ausgabe: Path, arbeit: Path) -> list[str]:
     elif mac():
         args += ["--hidden-import", "webview.platforms.cocoa", "--osx-bundle-identifier", "io.github.s4ltc.pdf2md"]
     else:
-        args += ["--hidden-import", "webview.platforms.qt", "--collect-submodules", "qtpy",
-                 "--hidden-import", "PySide6.QtWebEngineWidgets", "--hidden-import", "PySide6.QtWebEngineCore",
-                 "--hidden-import", "PySide6.QtWebChannel"]
+        # nur die Qt-Module, die pywebview braucht (alle qtpy-Untermodule zogen ganz Qt mit: 346 MB statt ~100 MB)
+        args += ["--hidden-import", "webview.platforms.qt"]
+        for modul in ("QtCore", "QtGui", "QtWidgets", "QtNetwork", "QtWebChannel", "QtWebEngineCore",
+                      "QtWebEngineWidgets"):
+            args += ["--hidden-import", f"qtpy.{modul}", "--hidden-import", f"PySide6.{modul}"]
     return args + [str(WURZEL / "ui_app.py")]
 
 
@@ -94,6 +97,21 @@ def drittlizenzen(ziel: Path) -> None:
     subprocess.run([sys.executable, str(WURZEL / "werkzeuge" / "drittlizenzen.py"), str(ziel)], check=True)
 
 
+LIZENZNAME = re.compile(r"licen[cs]e|copying|notice|credits|thirdparty|third_party", re.IGNORECASE)
+
+
+def lizenzbericht(ordner: Path) -> dict:
+    """Kurzer Bericht ueber ein Paket, damit sich die Fremdlizenzen ohne Download pruefen lassen (Hinweis am Lauf):
+    Eintraege der Uebersicht, ob die LGPL (Qt) und Chromium vorkommen, Lizenzdateien im Programm selbst."""
+    text = (ordner / "DRITTLIZENZEN.txt").read_text(encoding="utf-8", errors="replace")
+    uebersicht = text.split("===", 1)[0]
+    dateien = sorted(p.relative_to(ordner).as_posix() for p in ordner.rglob("*")
+                     if p.is_file() and p.parent != ordner and LIZENZNAME.search(p.name))
+    return {"eintraege": sum(1 for z in uebersicht.splitlines() if " – " in z),
+            "lgpl": "GNU LESSER GENERAL PUBLIC LICENSE" in text.upper(), "chromium": text.count("Chromium"),
+            "lizenzdateien_im_programm": dateien[:40], "lizenzdateien_anzahl": len(dateien)}
+
+
 def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Path:
     """pdf2md-TAG-NAME.zip (Windows, macOS) bzw. .tar.gz (Linux) mit Programm, Lizenz, Fremdlizenzen und LIESMICH."""
     ordner = Path(tempfile.mkdtemp()) / "pdf2md"        # macOS: oberster Ordner im ZIP (ditto --keepParent)
@@ -107,7 +125,14 @@ def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Pat
     shutil.copy2(WURZEL / "LICENSE", ordner / "LICENSE.txt")
     shutil.copy2(WURZEL / "docs" / "LIESMICH.txt", ordner / "LIESMICH.txt")
     drittlizenzen(ordner / "DRITTLIZENZEN.txt")
-    stamm = ziel_ordner / f"pdf2md-{tag}-{name}"
+    bericht = lizenzbericht(ordner)
+    archiv = _packen(ordner, ziel_ordner / f"pdf2md-{tag}-{name}")
+    bericht.update(archiv=archiv.name, groesse_mb=round(archiv.stat().st_size / 1e6, 1) if archiv.exists() else None)
+    (ziel_ordner / "paket.json").write_text(json.dumps(bericht, ensure_ascii=False, indent=1), encoding="utf-8")
+    return archiv
+
+
+def _packen(ordner: Path, stamm: Path) -> Path:
     if windows():
         return Path(shutil.make_archive(str(stamm), "zip", ordner))
     if mac():
