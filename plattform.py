@@ -42,6 +42,14 @@ def gui() -> str:
     return "qt" if _vorhanden("PySide6") else "gtk"
 
 
+def vorbereiten() -> None:
+    """Vor dem Start des Fensters. Linux: Ubuntu sperrt ab 23.10 die Sandbox von QtWebEngine (Chromium) fuer Programme
+    ohne AppArmor-Profil, das Fenster bliebe leer oder startete nicht. Es laedt nur die eigenen lokalen Dateien der
+    Oberflaeche, nie Seiten aus dem Netz; deshalb wird die Sandbox abgeschaltet (eine eigene Einstellung bleibt)."""
+    if not windows() and not mac():
+        os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+
+
 def oeffnen(pfad: Path) -> None:
     """Datei oder Ordner mit dem Standardprogramm oeffnen (PDF-Leser, Editor, Explorer/Finder/Dateimanager)."""
     if windows():

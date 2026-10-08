@@ -21,6 +21,12 @@ digital signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
 Prüfsumme mit `SHA256SUMS.txt` aus dem Release (`Get-FileHash pdf2md-…-windows.zip` in PowerShell). Die `.exe`
 entsteht automatisch auf einem Windows-Rechner von GitHub aus genau diesem Quellcode (`.github/workflows/release.yml`).
 
+**macOS und Linux (Vorschau):** Im Release liegen auch `pdf2md-…-macos-arm64.zip` (Apple Silicon),
+`…-macos-intel.zip` und `…-linux-x86_64.tar.gz`. Sie werden bei jedem Build auf GitHub automatisch gestartet und
+geprüft (siehe [macOS und Linux](#macos-und-linux-vorschau)), sind auf echten Geräten aber noch nicht von Hand
+getestet. macOS: die App ist nicht notarisiert, nach dem ersten Öffnungsversuch Systemeinstellungen → Datenschutz &
+Sicherheit → „Dennoch öffnen“. Die Arbeitsordner entstehen dort im Dokumente-Ordner unter `pdf2md`.
+
 **Updates:** Oben im Fenster steht die Versionsnummer. Gibt es auf GitHub eine neuere Version, erscheint daneben
 „Version … verfügbar“; ein Klick öffnet die Release-Seite. Zum Aktualisieren das neue ZIP herunterladen und nur
 `pdf2md.exe` ersetzen. Die Ordner (`Eingang`, `Fertig`, `Prüfen`, `Sicherung`), `Protokoll.csv` und
@@ -546,14 +552,25 @@ Das Skript legt die virtuelle Umgebung unter `%LOCALAPPDATA%\pdf2md-venv` an (be
 und erzeugt `dist\pdf2md.exe` (Fenster-Anwendung, Einstieg `ui_app.py`, ohne Konsole). Läuft `pdf2md.exe` noch, bricht
 es ab. Ohne Build: `python ui_app.py` (mit `PDF2MD_ABLAGE=<ordner>` auf eine andere Ablage, zum Beispiel eine Kopie).
 
-### macOS und Linux (vorbereitet)
+### macOS und Linux (Vorschau)
 
-Fertige Downloads gibt es nur für Windows. Der Code ist für macOS und Linux vorbereitet: alles, was je System
-anders ist, steht in `plattform.py` (Anzeige: WebKit auf dem Mac, QtWebEngine über PySide6 oder WebKitGTK unter
-Linux; Dateien öffnen, ein Fenster je Ordner, helles/dunkles Thema, Ort der Ablage). Die Tests laufen bei jedem Push
-auf Windows, macOS und Linux. Das Fenster selbst ist auf macOS und Linux noch nicht von Hand geprüft. Aus dem
-Quellcode starten: Python 3.13, `pip install -r requirements.txt`, `python ui_app.py`. Die Ablage liegt dann neben dem
-Skript, in einer gebauten App später im Dokumente-Ordner (`~/Documents/pdf2md`).
+Alles, was je System anders ist, steht in `plattform.py` (Anzeige: WebKit auf dem Mac, QtWebEngine über PySide6
+unter Linux, sonst WebKitGTK; Dateien öffnen, ein Fenster je Ordner, helles/dunkles Thema, Ort der Ablage).
+Gebaut wird mit `werkzeuge/bauen.py` (gemeinsam für alle Systeme; `build.ps1` ruft es unter Windows auf):
+
+- **Tests** laufen bei jedem Push auf Windows, macOS und Linux (`.github/workflows/tests.yml`).
+- **Builds mit Start-Test** laufen bei jedem Push für Windows, macOS (Apple Silicon und Intel) und Linux
+  (`.github/workflows/bauen.yml`): das gebaute Programm wird gestartet, und erst wenn die Oberfläche ihre
+  Versionsnummer über die Python-Schnittstelle geholt hat, gilt der Start als gelungen (Anzeige-Engine, Oberfläche
+  und Schnittstelle laufen). Unter Linux geschieht das auf einem virtuellen Bildschirm. Das Ergebnis steht als
+  Hinweis am Lauf.
+- **Nicht geprüft** ist die Bedienung auf echten Mac- und Linux-Rechnern (Ziehen ins Fenster, Dialoge, Darstellung).
+
+Aus dem Quellcode starten: Python 3.13, `pip install -r requirements.txt`, `python ui_app.py`; die Ablage liegt dann
+neben dem Skript. Die gebaute App legt sie im Dokumente-Ordner an (`~/Documents/pdf2md`), weil das App-Paket bzw.
+`/usr`, `/opt` schreibgeschützt sind. Unter Linux schaltet `plattform.vorbereiten()` die Chromium-Sandbox von
+QtWebEngine ab (Ubuntu ab 23.10 sperrt sie sonst); das Fenster lädt nur die eigenen lokalen Dateien. Lizenz: Qt kommt
+über PySide6 (LGPL), deshalb ist das Linux-Paket ein Ordner mit austauschbaren Bibliotheken statt einer Datei.
 
 ### Einstellungen
 
@@ -569,10 +586,11 @@ abweichenden Werten erzeugt, steht das im Kopfblock (`einstellungen: "abweichend
 - **Tests:** laufen bei jedem Push auf `main` automatisch auf GitHub (`.github/workflows/tests.yml`).
 - **Release:** zuerst `VERSION` in `aktualisierung.py` erhöhen und committen, dann einen passenden Versions-Tag
   pushen, z. B. `git tag v1.1.0` und `git push origin v1.1.0` (passen Tag und `VERSION` nicht, bricht der Ablauf ab,
-  sonst würde die Update-Suche falsch melden). Dann baut GitHub die
-  `.exe`, lässt alle Tests in derselben Umgebung laufen, schreibt die Fremdlizenzen (`werkzeuge/drittlizenzen.py`)
-  und legt das Release mit `pdf2md-v1.0.0-windows.zip` (exe, `LICENSE.txt`, `DRITTLIZENZEN.txt`, `LIESMICH.txt`)
-  und `SHA256SUMS.txt` an.
+  sonst würde die Update-Suche falsch melden). Dann baut GitHub für Windows, macOS
+  (Apple Silicon, Intel) und Linux, lässt je System alle Tests in derselben Umgebung und den Start-Test laufen,
+  schreibt die Fremdlizenzen je System (`werkzeuge/drittlizenzen.py`) und legt das Release mit
+  `pdf2md-v1.1.0-windows.zip`, `…-macos-arm64.zip`, `…-macos-intel.zip`, `…-linux-x86_64.tar.gz` (jeweils mit
+  `LICENSE.txt`, `DRITTLIZENZEN.txt`, `LIESMICH.txt`) und `SHA256SUMS.txt` an.
 - **Nichts Persönliches veröffentlichen:** Releases nur von GitHub bauen lassen, nicht die eigene `.exe` hochladen.
   Vor jedem Push prüfen: keine Pfade mit dem eigenen Benutzernamen, keine Kunden-/Abonummern aus Normen, kein
   Buch- oder Normtext und keine Titel der eigenen Bücher und Normen (Beispiele in Tests und Doku sind erfunden),

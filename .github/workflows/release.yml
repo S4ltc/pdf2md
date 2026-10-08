@@ -1,6 +1,7 @@
-# Baut pdf2md.exe auf einem frischen Windows-Rechner von GitHub, prueft sie und veroeffentlicht ein Release.
-# Ausgeloest durch einen Versions-Tag, z.B.:  git tag v1.0.0  und  git push origin v1.0.0
-# Gebaut wird bewusst hier und nicht auf dem eigenen Rechner: so stehen keine eigenen Pfade in der .exe.
+# Veroeffentlicht ein Release fuer Windows, macOS und Linux, ausgeloest durch einen Versions-Tag, z.B.:
+#   git tag v1.2.0  und  git push origin v1.2.0      (vorher VERSION in aktualisierung.py anpassen)
+# Gebaut wird bewusst hier und nicht auf dem eigenen Rechner: so stehen keine eigenen Pfade in den Programmen.
+# Bauen, Start-Test und Pakete: bauen.yml; hier kommen Versionspruefung, Pruefsummen und das Release dazu.
 name: Release
 
 on:
@@ -11,57 +12,46 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: windows-latest
+  version:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-
       - name: Tag passt zur Version im Programm
-        shell: pwsh
+        shell: bash
         run: |
           # Die Update-Suche vergleicht aktualisierung.VERSION mit dem neuesten Tag; passen sie nicht zusammen,
           # meldet das Programm sich selbst als veraltet (oder nie).
-          $version = (Select-String -Path aktualisierung.py -Pattern '^VERSION = "(.+)"').Matches[0].Groups[1].Value
-          if ("v$version" -ne "${{ github.ref_name }}") {
-            Write-Error "Tag ${{ github.ref_name }} passt nicht zu VERSION = `"$version`" in aktualisierung.py"
+          version=$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' aktualisierung.py)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME passt nicht zu VERSION = \"$version\" in aktualisierung.py"
             exit 1
-          }
+          fi
 
-      - name: pdf2md.exe bauen
-        shell: pwsh
-        run: powershell -ExecutionPolicy Bypass -File build.ps1
+  bauen:
+    needs: version
+    uses: ./.github/workflows/bauen.yml
+    with:
+      tag: ${{ github.ref_name }}
+      tests: true
 
-      - name: Tests in derselben Umgebung
-        shell: pwsh
+  veroeffentlichen:
+    needs: bauen
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: paket-*
+          merge-multiple: true
+          path: pakete
+      - name: Prüfsummen
+        working-directory: pakete
         run: |
-          $py = Join-Path $env:LOCALAPPDATA "pdf2md-venv\Scripts\python.exe"
-          & $py -m pip install --quiet -r requirements-dev.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $py -m pytest
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Paket mit Lizenzen und Pruefsumme
-        shell: pwsh
-        run: |
-          $py = Join-Path $env:LOCALAPPDATA "pdf2md-venv\Scripts\python.exe"
-          $name = "pdf2md-${{ github.ref_name }}-windows"
-          New-Item -ItemType Directory -Force paket | Out-Null
-          Copy-Item dist\pdf2md.exe paket\
-          Copy-Item LICENSE paket\LICENSE.txt
-          Copy-Item docs\LIESMICH.txt paket\
-          & $py werkzeuge\drittlizenzen.py paket\DRITTLIZENZEN.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Compress-Archive -Path paket\* -DestinationPath "$name.zip"
-          $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $name.zip" | Out-File -Encoding ascii SHA256SUMS.txt
-
+          sha256sum pdf2md-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Release anlegen
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ github.ref_name }}" "pdf2md-${{ github.ref_name }}-windows.zip" SHA256SUMS.txt `
-            --title "pdf2md ${{ github.ref_name }}" --notes-file .github/release-notes.md
+          gh release create "$GITHUB_REF_NAME" pakete/* --title "pdf2md $GITHUB_REF_NAME" \
+            --notes-file .github/release-notes.md

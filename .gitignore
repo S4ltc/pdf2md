@@ -15,3 +15,5 @@ CLAUDE.local.md
 paket/
 *.zip
 SHA256SUMS.txt
+*.tar.gz
+starttest.json

@@ -9,6 +9,7 @@ pywebview ruft jede Api-Methode in einem eigenen Thread auf: gemeinsamer Zustand
 der Api sind privat (Unterstrich), sonst versucht pywebview, sie fuer JavaScript freizugeben."""
 
 import copy
+import json
 import multiprocessing
 import os
 import sys
@@ -35,6 +36,8 @@ BEREICHE = ("eingang", "pruefen", "fertig")
 MAX_EREIGNISSE = 3000
 PARALLEL_AB_BUECHERN = 40     # so viele fehlende Kennzahlen rechnen Unterprozesse statt eines Threads
 FORTSCHRITT_ABSTAND = 0.2      # Sekunden: haeufiger meldet die Oberflaeche keinen Fortschritt (Seiten sind schnell)
+STARTTEST_WARTEN = 90          # Start-Test (werkzeuge/bauen.py): so lange darf sich die Oberflaeche Zeit lassen
+STARTTEST_TAKT = 0.5
 
 
 def web_ordner() -> Path:
@@ -566,8 +569,30 @@ def meldung(text: str) -> None:
     plattform.meldung(text)
 
 
+def _starttest(fenster, ziel: Path) -> None:
+    """Nur fuer den automatischen Start-Test beim Bauen (Umgebungsvariable PDF2MD_STARTTEST, kein Schalter fuer
+    Nutzer): wartet, bis die Oberflaeche ihre Versionsnummer ueber die Python-Schnittstelle geholt und angezeigt hat
+    (Engine, Seite und Schnittstelle laufen), schreibt das Ergebnis nach ziel und schliesst das Fenster."""
+    ergebnis = {"ok": False, "version": aktualisierung.VERSION, "gui": plattform.gui(), "system": plattform.SYSTEM}
+    ende = time.time() + STARTTEST_WARTEN
+    while time.time() < ende:
+        try:
+            angezeigt = fenster.evaluate_js("(document.querySelector('#version') || {}).textContent || ''")
+        except Exception as e:                                # die Seite laedt noch oder die Engine hakt
+            angezeigt, ergebnis["fehler"] = None, repr(e)[:500]
+        if angezeigt == aktualisierung.VERSION:
+            ergebnis.update(ok=True, angezeigt=angezeigt)
+            ergebnis.pop("fehler", None)
+            break
+        time.sleep(STARTTEST_TAKT)
+    Path(ziel).write_text(json.dumps(ergebnis, ensure_ascii=False), encoding="utf-8")
+    fenster.destroy()
+
+
 def main() -> int:
     multiprocessing.freeze_support()                         # noetig, damit die Unterprozesse in der .exe starten
+    plattform.vorbereiten()
+    starttest = os.environ.get("PDF2MD_STARTTEST")             # nur beim Bauen gesetzt (werkzeuge/bauen.py)
     # Ablage neben dem Programm; PDF2MD_ABLAGE zeigt zum Entwickeln auf eine Kopie (nie auf dist)
     basis = Path(os.environ.get("PDF2MD_ABLAGE") or pdf2md.BASE_DIR)
     if not einzelinstanz(basis):
@@ -575,14 +600,18 @@ def main() -> int:
         return 1
     import webview
     api = Api(basis)
-    api.update_pruefen_starten()
+    if not starttest:
+        api.update_pruefen_starten()
     fenster = webview.create_window("pdf2md", url=str(web_ordner() / "index.html"), js_api=api, width=1280,
                                     height=820, min_size=(720, 560), text_select=True,
                                     background_color="#1f1f1f" if system_dunkel() else "#fafafa")
     api._fenster_setzen(fenster)
     fenster.events.closing += api._beim_schliessen
     fenster.events.loaded += api._beim_laden
-    webview.start(gui=plattform.gui(), private_mode=True)
+    if starttest:
+        webview.start(_starttest, (fenster, Path(starttest)), gui=plattform.gui(), private_mode=True)
+    else:
+        webview.start(gui=plattform.gui(), private_mode=True)
     return 0
 
 

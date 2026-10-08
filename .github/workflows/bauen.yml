@@ -1,0 +1,87 @@
+# Baut pdf2md fuer Windows, macOS (Apple Silicon und Intel) und Linux, startet jedes Ergebnis einmal zur Probe
+# (Start-Test: Anzeige-Engine, Oberflaeche und Python-Schnittstelle, siehe werkzeuge/bauen.py) und legt die Pakete
+# als Artefakte ab. Laeuft bei jedem Push auf main, damit sich ohne eigenes Geraet zeigt, ob macOS und Linux starten,
+# und als Teil des Releases (release.yml, dann mit Tag im Paketnamen und allen Tests in derselben Umgebung).
+# Das Ergebnis des Start-Tests steht als Hinweis am Lauf (auch ohne Anmeldung ueber die API lesbar).
+name: Bauen
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      tests:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  bauen:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows }
+          - { os: macos-15, name: macos-arm64 }
+          - { os: macos-15-intel, name: macos-intel }
+          - { os: ubuntu-22.04, name: linux-x86_64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ inputs.tag || 'probe' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Systempakete für Qt und den virtuellen Bildschirm
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb xauth libegl1 libgl1 libopengl0 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbfile1 libnss3 libxcomposite1 libxdamage1 libxrandr2 \
+            libxtst6 libasound2 libdbus-1-3 libfontconfig1
+
+      - name: Abhängigkeiten
+        run: python -m pip install -r requirements-dev.txt pyinstaller
+
+      - name: Tests in derselben Umgebung
+        if: inputs.tests
+        run: python -m pytest
+
+      - name: Bauen
+        run: python werkzeuge/bauen.py dist
+
+      - name: Start-Test
+        run: python werkzeuge/bauen.py starttest dist
+
+      - name: Paket
+        shell: bash
+        run: python werkzeuge/bauen.py paket "${{ matrix.name }}" "$TAG" dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: paket-${{ matrix.name }}
+          path: pdf2md-*-${{ matrix.name }}.*
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Ergebnis des Start-Tests als Hinweis
+        if: always()
+        shell: bash
+        run: |
+          if [ -f starttest.json ]; then
+            text=$(python -c "import json; d=json.load(open('starttest.json', encoding='utf-8')); print(('OK ' if d.get('ok') else 'FEHLER ') + json.dumps({k: d.get(k) for k in ('gui', 'angezeigt', 'fehler', 'rueckgabe')}, ensure_ascii=False)); print((d.get('ausgabe') or '')[-2500:])" | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::notice title=Start-Test ${{ matrix.name }}::$text"
+          else
+            echo "::notice title=Start-Test ${{ matrix.name }}::nicht gelaufen (Build fehlgeschlagen?)"
+          fi
