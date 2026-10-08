@@ -115,19 +115,62 @@ class TestAufraeumen:
             (qt / "translations" / name).write_bytes(b"x" * 10)
         (qt / "resources" / "qtwebengine_devtools_resources.pak").write_bytes(b"x")
         (qt / "resources" / "qtwebengine_resources.pak").write_bytes(b"x")
-        assert bauen.aufraeumen(tmp_path) == 220
+        assert bauen.aufraeumen(tmp_path) == (220, [])
         assert sorted(p.name for p in qt.rglob("*") if p.is_file()) == [
             "de.pak", "en-US.pak", "qt_en.qm", "qt_help_de.qm", "qtbase_de.qm", "qtwebengine_devtools_resources.pak",
             "qtwebengine_resources.pak"]
 
+    @staticmethod
+    def bibliotheken(ordner, abhaengigkeiten):
+        """Nachgebaute Bibliotheken: Inhalt egal, die Abhaengigkeiten liefert `abhaengigkeiten` (statt readelf)."""
+        for name in abhaengigkeiten:
+            (ordner / name).parent.mkdir(parents=True, exist_ok=True)
+            (ordner / name).write_bytes(b"\x7fELF" + b"x" * 96)
+        return lambda datei: [Path(n).name for n in abhaengigkeiten.get(datei.relative_to(ordner).as_posix(), [])]
+
+    GTK = {"PySide6/Qt/plugins/platformthemes/libqgtk3.so": ["libgtk-3.so.0", "libglib-2.0.so.0"],
+           "libgtk-3.so.0": ["libpango-1.0.so.0", "libglib-2.0.so.0"],
+           "libpango-1.0.so.0": ["libharfbuzz.so.0"],
+           "libharfbuzz.so.0": [],
+           "PySide6/Qt/lib/libQt6Core.so.6": ["libglib-2.0.so.0"],
+           "PySide6/Qt/lib/libQt6Gui.so.6": ["libharfbuzz.so.0", "libQt6Core.so.6"],
+           "libglib-2.0.so.0": [],
+           "libdlopen-nur.so.1": []}
+
+    def test_nur_ueber_das_plugin(self, tmp_path):
+        """Was nur das GTK-Plugin braucht, entfaellt; was Qt selbst auch braucht (GLib, HarfBuzz), bleibt; was niemand
+        verlangt (zur Laufzeit nachgeladen), bleibt ebenso."""
+        abhaengigkeiten = self.bibliotheken(tmp_path, self.GTK)
+        weg = bauen.nur_ueber(tmp_path, [tmp_path / "PySide6/Qt/plugins/platformthemes/libqgtk3.so"], abhaengigkeiten)
+        assert [p.name for p in weg] == ["libgtk-3.so.0", "libpango-1.0.so.0"]
+
+    def test_gtk_plugin_entfernt(self, tmp_path, monkeypatch):
+        intern = tmp_path / "pdf2md" / "_internal"
+        monkeypatch.setattr(bauen, "benoetigt", self.bibliotheken(intern, self.GTK))
+        monkeypatch.setattr(bauen.shutil, "which", lambda name: "readelf" if name == "readelf" else None)
+        gespart, entfernt = bauen.aufraeumen(tmp_path)
+        assert entfernt == ["libgtk-3.so.0", "libpango-1.0.so.0", "libqgtk3.so"] and gespart == 300
+        assert not (intern / "libgtk-3.so.0").exists() and (intern / "libglib-2.0.so.0").exists()
+        assert (intern / "libharfbuzz.so.0").exists() and (intern / "libdlopen-nur.so.1").exists()
+
+    def test_ohne_readelf_nur_das_plugin(self, tmp_path, monkeypatch):
+        intern = tmp_path / "pdf2md" / "_internal"
+        self.bibliotheken(intern, self.GTK)
+        monkeypatch.setattr(bauen.shutil, "which", lambda name: None)
+        assert bauen.aufraeumen(tmp_path) == (100, ["libqgtk3.so"])
+        assert (intern / "libgtk-3.so.0").exists()
+
     def test_nur_unter_linux(self, system, tmp_path, monkeypatch):
         aufrufe = []
+        monkeypatch.setattr(bauen, "WURZEL", tmp_path)
         monkeypatch.setattr(bauen.subprocess, "run", lambda befehl, **kw: subprocess.CompletedProcess(befehl, 0))
-        monkeypatch.setattr(bauen, "aufraeumen", lambda ausgabe: aufrufe.append(ausgabe) or 0)
+        monkeypatch.setattr(bauen, "aufraeumen", lambda ausgabe: aufrufe.append(ausgabe) or (2_000_000, ["x.so"]))
         for name in ("win32", "darwin", "linux"):
             system(name)
             assert bauen.bauen(tmp_path) == 0
         assert aufrufe == [tmp_path]
+        assert json.loads((tmp_path / "aufgeraeumt.json").read_text(encoding="utf-8")) == {
+            "gespart_mb": 2.0, "entfernt": ["x.so"]}
 
 
 class FensterNachbau:

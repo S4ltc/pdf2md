@@ -73,26 +73,76 @@ def bauen(ausgabe: Path) -> int:
     arbeit = Path(tempfile.gettempdir()) / "pdf2md-build"
     code = subprocess.run([sys.executable, "-m", "PyInstaller", *pyinstaller_argumente(ausgabe, arbeit)]).returncode
     if code == 0 and not windows() and not mac():
-        print(f"aufgeraeumt: {aufraeumen(ausgabe) / 1e6:.1f} MB")
+        gespart, entfernt = aufraeumen(ausgabe)
+        bericht = {"gespart_mb": round(gespart / 1e6, 1), "entfernt": entfernt}
+        (WURZEL / "aufgeraeumt.json").write_text(json.dumps(bericht, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(json.dumps(bericht, ensure_ascii=False, indent=1))
     return code
 
 
 # Sprachen, die im Linux-Paket bleiben: Chromium faellt ohne passende Sprachdatei auf en-US zurueck, Qt laedt seine
 # Uebersetzungen nur auf Anfrage (pdf2md fragt nie danach)
 SPRACHEN = ("de", "en", "en-US")
+# Qt-Plugins, die das Fenster nicht braucht und die Bibliotheken des Build-Systems mitziehen. Das GTK-Thema bringt
+# GTK, Pango, Cairo usw. von Ubuntu 22.04 mit; auf einem anderen System liefen die gegen dessen GTK-, GIO- und
+# Thema-Module. Ohne das Plugin nimmt Qt sein eigenes Aussehen (betrifft nur den Dateidialog, das Fenster ist HTML).
+UNNOETIGE_PLUGINS = ("platformthemes/libqgtk3.so",)
+ELF_NEEDED = re.compile(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]")
 
 
-def aufraeumen(ausgabe: Path) -> int:
-    """Entfernt aus dem Linux-Programmordner, was das Fenster nicht braucht, und gibt die gesparten Bytes zurueck.
-    Gemessen (Paketbericht): 45 MB Sprachdateien von Chromium, 10 MB Qt-Uebersetzungen, libpython mit 31 MB
-    Debug-Informationen. Die Entwicklerwerkzeuge (qtwebengine_devtools_resources.pak) bleiben: ob Qt WebEngine ohne
-    sie startet, ist nicht belegt."""
+def benoetigt(datei: Path) -> list[str] | None:
+    """Bibliotheken, die eine ELF-Datei beim Laden braucht (DT_NEEDED, ueber readelf); None, wenn keine ELF-Datei."""
+    with open(datei, "rb") as f:
+        if f.read(4) != b"\x7fELF":
+            return None
+    lauf = subprocess.run(["readelf", "-d", str(datei)], capture_output=True, text=True, errors="replace")
+    return ELF_NEEDED.findall(lauf.stdout)
+
+
+def nur_ueber(ordner: Path, weg: list[Path], abhaengigkeiten=None) -> list[Path]:
+    """Bibliotheken im Ordner, die nur die Dateien in `weg` brauchen (auch ueber Zwischenstufen) und damit mit ihnen
+    entfallen koennen. Was irgendeine andere Datei im Ordner braucht, bleibt; ebenso alles, was nur zur Laufzeit
+    nachgeladen wird (dlopen), denn das steht in keiner Abhaengigkeit von `weg`."""
+    abhaengigkeiten = abhaengigkeiten or benoetigt
+    elf = {}
+    for datei in ordner.rglob("*"):
+        if datei.is_file() and not datei.is_symlink():
+            namen = abhaengigkeiten(datei)
+            if namen is not None:
+                elf[datei.resolve()] = namen
+    nach_name: dict[str, set[Path]] = {}
+    for eintrag in ordner.rglob("*"):                  # auch Verknuepfungen (PyInstaller legt sie unter Linux an)
+        if eintrag.resolve() in elf:
+            nach_name.setdefault(eintrag.name, set()).add(eintrag.resolve())
+
+    def huelle(start: set[Path]) -> set[Path]:
+        gesehen, offen = set(), list(start)
+        while offen:
+            datei = offen.pop()
+            if datei not in gesehen:
+                gesehen.add(datei)
+                for name in elf.get(datei, []):
+                    offen.extend(nach_name.get(name, ()))
+        return gesehen
+    weg_menge = {p.resolve() for p in weg}
+    kandidaten = huelle(weg_menge) - weg_menge
+    return sorted(kandidaten - huelle(set(elf) - weg_menge - kandidaten))
+
+
+def aufraeumen(ausgabe: Path) -> tuple[int, list[str]]:
+    """Entfernt aus dem Linux-Programmordner, was das Fenster nicht braucht. Ergebnis: gesparte Bytes und die Namen
+    entfernter Plugins und Bibliotheken. Gemessen (Paketbericht): 45 MB Sprachdateien von Chromium, 10 MB
+    Qt-Uebersetzungen, libpython mit 31 MB Debug-Informationen, GTK des Build-Systems. Die Entwicklerwerkzeuge
+    (qtwebengine_devtools_resources.pak) bleiben: ob Qt WebEngine ohne sie startet, ist nicht belegt."""
     intern = ausgabe / "pdf2md" / "_internal"
-    uebersetzungen = intern / "PySide6" / "Qt" / "translations"
-    weg = [p for p in (uebersetzungen / "qtwebengine_locales").glob("*.pak") if p.stem not in SPRACHEN]
-    weg += [p for p in uebersetzungen.glob("*.qm") if p.stem.rpartition("_")[2] not in SPRACHEN]
-    gespart = sum(p.stat().st_size for p in weg)
-    for datei in weg:
+    qt = intern / "PySide6" / "Qt"
+    weg = [p for p in (qt / "translations" / "qtwebengine_locales").glob("*.pak") if p.stem not in SPRACHEN]
+    weg += [p for p in (qt / "translations").glob("*.qm") if p.stem.rpartition("_")[2] not in SPRACHEN]
+    plugins = [qt / "plugins" / p for p in UNNOETIGE_PLUGINS if (qt / "plugins" / p).is_file()]
+    bibliotheken = nur_ueber(intern, plugins) if plugins and shutil.which("readelf") else []
+    verweise = [p for p in intern.rglob("*") if p.is_symlink() and p.resolve() in set(bibliotheken)]
+    gespart = sum(p.stat().st_size for p in weg + plugins + bibliotheken)
+    for datei in weg + plugins + bibliotheken + verweise:
         datei.unlink()
     for bibliothek in intern.glob("libpython3*.so*"):
         # nur die Debug-Informationen: die Symbole braucht der Starter von PyInstaller (dlopen/dlsym)
@@ -100,7 +150,7 @@ def aufraeumen(ausgabe: Path) -> int:
             groesse = bibliothek.stat().st_size
             if subprocess.run(["strip", "--strip-debug", str(bibliothek)]).returncode == 0:
                 gespart += groesse - bibliothek.stat().st_size
-    return gespart
+    return gespart, sorted(p.name for p in plugins + bibliotheken)
 
 
 def starttest(ausgabe: Path, bericht: Path) -> int:
@@ -219,11 +269,12 @@ def hinweise(name: str, wurzel: Path = WURZEL) -> list[str]:
                       + "\n" + (d.get("ausgabe") or "")[-2500:])]
     else:
         meldungen = [(f"Start-Test {name}", "nicht gelaufen (Build fehlgeschlagen?)")]
-    if (wurzel / "paket.json").exists():
-        text = (wurzel / "paket.json").read_text(encoding="utf-8")
-        teile = [text[i:i + HINWEIS_LAENGE] for i in range(0, len(text), HINWEIS_LAENGE)]
-        meldungen += [(f"Paket {name}" + (f" ({n}/{len(teile)})" if len(teile) > 1 else ""), teil)
-                      for n, teil in enumerate(teile, 1)]
+    for datei, titel in (("aufgeraeumt.json", "Aufgeraeumt"), ("paket.json", "Paket")):
+        if (wurzel / datei).exists():
+            text = (wurzel / datei).read_text(encoding="utf-8")
+            teile = [text[i:i + HINWEIS_LAENGE] for i in range(0, len(text), HINWEIS_LAENGE)]
+            meldungen += [(f"{titel} {name}" + (f" ({n}/{len(teile)})" if len(teile) > 1 else ""), teil)
+                          for n, teil in enumerate(teile, 1)]
     def maskiert(text: str) -> str:
         return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     return [f"::notice title={maskiert(titel)}::{maskiert(text)}" for titel, text in meldungen]
