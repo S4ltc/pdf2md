@@ -53,11 +53,11 @@ def pyinstaller_argumente(ausgabe: Path, arbeit: Path) -> list[str]:
         for modul in ("QtCore", "QtGui", "QtWidgets", "QtNetwork", "QtWebChannel", "QtWebEngineCore",
                       "QtWebEngineWidgets"):
             args += ["--hidden-import", f"qtpy.{modul}", "--hidden-import", f"PySide6.{modul}"]
-        # libQt6WebEngineCore braucht Qt Quick und QML als Bibliotheken (die kommen ueber die Abhaengigkeiten mit),
-        # das Fenster aber keine QML-Module. Ueber die Python-Module QtQml/QtQuick zog PyInstaller alle QML-Module
-        # samt ihrer Bibliotheken mit (Quick 3D, Controls-Stile, Graphs, Qt 3D, ...).
-        for modul in ("QtQml", "QtQuick", "QtQuickWidgets"):
-            args += ["--exclude-module", f"PySide6.{modul}"]
+        # libQt6WebEngineCore braucht QML als Bibliothek (kommt ueber die Abhaengigkeiten mit), das Fenster aber keine
+        # QML-Module. Die sammelt PyInstallers Hook fuer das Python-Modul QtQml ein, samt ihrer Bibliotheken (Quick 3D,
+        # Controls-Stile, Graphs, Qt 3D, ...). QtQuick bleibt: es bringt die Scenegraph-Plugins, ueber die Qt
+        # WebEngine zeichnet (ohne QtQuick meldete der Start-Test einen GPU-Fehler).
+        args += ["--exclude-module", "PySide6.QtQml"]
     return args + [str(WURZEL / "ui_app.py")]
 
 
@@ -184,6 +184,7 @@ def drittlizenzen(ziel: Path) -> None:
 
 TRENNER = re.compile(r"^={79}$", re.MULTILINE)      # wie in drittlizenzen.py
 LGPL3 = re.compile(r"GNU LESSER GENERAL PUBLIC LICENSE\s+Version 3", re.IGNORECASE)
+CHROMIUM = re.compile(r"Copyright[^\n]*The Chromium Authors")
 
 
 def lizenzbericht(ordner: Path) -> dict:
@@ -198,6 +199,7 @@ def lizenzbericht(ordner: Path) -> dict:
             "ohne_lizenztext": [k for k, inhalt in abschnitte.items() if "(kein Lizenztext im Paket" in inhalt],
             "nur_standardtext": [k for k, inhalt in abschnitte.items() if "--- Standardtext" in inhalt],
             "lgpl3_volltext": bool(LGPL3.search(text)),
+            "chromium_volltext": bool(CHROMIUM.search(text)),
             "qt_lizenztext_zeichen": {k: len(inhalt.strip()) for k, inhalt in abschnitte.items()
                                       if k.lower().startswith(("pyside6", "shiboken6"))}}
 
@@ -213,7 +215,8 @@ def groessenbericht(ordner: Path, anzahl: int = 50) -> dict:
     def mb(paare, n):                                  # eine Zeile je Eintrag, damit der Hinweis lesbar bleibt
         return [f"{groesse / 1e6:6.1f} MB  {name}" for name, groesse in sorted(paare, key=lambda x: -x[1])[:n]]
     return {"entpackt_mb": round(sum(g for _, g in dateien) / 1e6, 1), "dateien": len(dateien),
-            "groesste_dateien": mb(dateien, anzahl), "groesste_ordner": mb(je_ordner.items(), 15)}
+            "groesste_dateien": mb(dateien, anzahl), "groesste_ordner": mb(je_ordner.items(), 15),
+            "qt_plugins": sorted(name.split("/Qt/plugins/", 1)[1] for name, _ in dateien if "/Qt/plugins/" in name)}
 
 
 def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Path:
@@ -259,8 +262,15 @@ def _packen(ordner: Path, stamm: Path) -> Path:
 HINWEIS_LAENGE = 3000      # GitHub kuerzt einen Hinweis nach rund 4000 Zeichen (gemessen: 4062), laengere werden geteilt
 
 
-def hinweise(name: str, wurzel: Path = WURZEL) -> list[str]:
-    """Ergebnis von Start-Test und Paket als GitHub-Hinweise (::notice), ohne Anmeldung ueber die API lesbar."""
+CHROMIUM_AUFGABE = ("Chromium-Lizenzen im Linux-Paket nur als Verweis. Vor dem finalen Release (nach dem Test auf "
+                    "echten Geraeten) als Volltext aufnehmen, siehe CLAUDE.md, Abschnitt Offene Aufgaben.")
+
+
+def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[str]:
+    """Ergebnis von Start-Test und Paket als GitHub-Hinweise (::notice), ohne Anmeldung ueber die API lesbar. Bei
+    einem Release (TAG gesetzt) zusaetzlich eine Warnung, solange Qt ohne Chromium-Lizenztexte im Paket steckt."""
+    tag = tag or os.environ.get("TAG", "probe")
+    warnungen = []
     test = wurzel / "starttest.json"
     if test.exists():
         d = json.loads(test.read_text(encoding="utf-8"))
@@ -275,9 +285,14 @@ def hinweise(name: str, wurzel: Path = WURZEL) -> list[str]:
             teile = [text[i:i + HINWEIS_LAENGE] for i in range(0, len(text), HINWEIS_LAENGE)]
             meldungen += [(f"{titel} {name}" + (f" ({n}/{len(teile)})" if len(teile) > 1 else ""), teil)
                           for n, teil in enumerate(teile, 1)]
+    if tag != "probe" and (wurzel / "paket.json").exists():
+        bericht = json.loads((wurzel / "paket.json").read_text(encoding="utf-8"))
+        if bericht.get("qt_lizenztext_zeichen") and not bericht.get("chromium_volltext"):
+            warnungen.append((f"Chromium-Lizenzen {name}", CHROMIUM_AUFGABE))
     def maskiert(text: str) -> str:
         return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    return [f"::notice title={maskiert(titel)}::{maskiert(text)}" for titel, text in meldungen]
+    return ([f"::warning title={maskiert(titel)}::{maskiert(text)}" for titel, text in warnungen]
+            + [f"::notice title={maskiert(titel)}::{maskiert(text)}" for titel, text in meldungen])
 
 
 def main(argumente: list[str]) -> int:

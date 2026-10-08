@@ -591,6 +591,9 @@ abweichenden Werten erzeugt, steht das im Kopfblock (`einstellungen: "abweichend
   schreibt die Fremdlizenzen je System (`werkzeuge/drittlizenzen.py`) und legt das Release mit
   `pdf2md-v1.1.0-windows.zip`, `…-macos-arm64.zip`, `…-macos-intel.zip`, `…-linux-x86_64.tar.xz` (jeweils mit
   `LICENSE.txt`, `DRITTLIZENZEN.txt`, `LIESMICH.txt`) und `SHA256SUMS.txt` an.
+- **Offen vor dem finalen Release (Linux nicht mehr als Vorschau):** Die Lizenzen von Chromium (steckt in der
+  Linux-Anzeige Qt WebEngine) stehen bisher nur als Verweis auf die Qt-Seite in `DRITTLIZENZEN.txt`, nicht als
+  Volltext. Das ist vor dem finalen Release nachzuholen; bis dahin warnt jeder Release-Lauf („Chromium-Lizenzen …“).
 - **Nichts Persönliches veröffentlichen:** Releases nur von GitHub bauen lassen, nicht die eigene `.exe` hochladen.
   Vor jedem Push prüfen: keine Pfade mit dem eigenen Benutzernamen, keine Kunden-/Abonummern aus Normen, kein
   Buch- oder Normtext und keine Titel der eigenen Bücher und Normen (Beispiele in Tests und Doku sind erfunden),

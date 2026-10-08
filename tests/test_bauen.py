@@ -51,6 +51,7 @@ class TestArgumente:
         assert "--onefile" not in a and "webview.platforms.qt" in a and "PySide6.QtWebEngineWidgets" in a
         ausgeschlossen = [a[i + 1] for i, x in enumerate(a) if x == "--exclude-module"]
         assert "PySide6.QtQml" in ausgeschlossen and "PySide6.QtWebEngineCore" not in ausgeschlossen
+        assert "PySide6.QtQuick" not in ausgeschlossen      # Scenegraph-Plugins, ohne sie GPU-Fehler im Start-Test
 
     def test_daten_mit_dem_trenner_des_systems(self, tmp_path):
         a = self.args(tmp_path)
@@ -237,6 +238,19 @@ class TestHinweise:
         zusammen = "".join(z.split("::", 2)[2] for z in pakete).replace("%0A", "\n").replace("%25", "%")
         assert json.loads(zusammen)["groesse_mb"] == 1.0
 
+    def test_release_warnt_ohne_chromium_texte(self, tmp_path):
+        """Nutzerentscheidung: Chromium-Lizenzen vorerst als Verweis, vor dem finalen Release als Volltext. Damit das
+        nicht vergessen wird, warnt jeder Release-Lauf, solange Qt ohne Chromium-Texte im Paket steckt."""
+        bericht = {"qt_lizenztext_zeichen": {"PySide6 6.12": 89}, "chromium_volltext": False}
+        (tmp_path / "paket.json").write_text(json.dumps(bericht), encoding="utf-8")
+        assert bauen.hinweise("linux-x86_64", tmp_path, tag="v1.2.0")[0].startswith(
+            "::warning title=Chromium-Lizenzen linux-x86_64::")
+        assert not any(z.startswith("::warning") for z in bauen.hinweise("linux-x86_64", tmp_path, tag="probe"))
+        (tmp_path / "paket.json").write_text(json.dumps({**bericht, "chromium_volltext": True}), encoding="utf-8")
+        assert not any(z.startswith("::warning") for z in bauen.hinweise("linux-x86_64", tmp_path, tag="v1.2.0"))
+        (tmp_path / "paket.json").write_text(json.dumps({"qt_lizenztext_zeichen": {}}), encoding="utf-8")
+        assert not any(z.startswith("::warning") for z in bauen.hinweise("windows", tmp_path, tag="v1.2.0"))
+
     def test_ohne_ergebnisse(self, tmp_path):
         assert bauen.hinweise("windows", tmp_path) == [
             "::notice title=Start-Test windows::nicht gelaufen (Build fehlgeschlagen?)"]
@@ -288,7 +302,7 @@ class TestLizenzen:
             + self.abschnitt("leer 1.0 – MIT", "(kein Lizenztext im Paket; Lizenzangabe siehe oben, Quelle: PyPI)"),
             encoding="utf-8")
         bericht = bauen.lizenzbericht(tmp_path)
-        assert bericht["eintraege"] == 4 and bericht["lgpl3_volltext"]
+        assert bericht["eintraege"] == 4 and bericht["lgpl3_volltext"] and not bericht["chromium_volltext"]
         assert bericht["ohne_lizenztext"] == ["leer 1.0 – MIT"] and bericht["nur_standardtext"] == ["qtpy 2.4 – MIT"]
         assert list(bericht["qt_lizenztext_zeichen"]) == ["PySide6 6.10 – LGPL"]
 
@@ -326,3 +340,10 @@ class TestLizenzen:
         assert bericht["groesste_dateien"] == ["   3.0 MB  pdf2md/_internal/Qt/gross.so",
                                                "   1.0 MB  pdf2md/_internal/Qt/klein.so"]
         assert bericht["groesste_ordner"] == ["   4.0 MB  pdf2md/_internal/Qt", "   0.1 MB  ."]
+        assert bericht["qt_plugins"] == []
+
+    def test_qt_plugins(self, tmp_path):
+        plugins = tmp_path / "pdf2md" / "_internal" / "PySide6" / "Qt" / "plugins"
+        (plugins / "platforms").mkdir(parents=True)
+        (plugins / "platforms" / "libqxcb.so").write_bytes(b"x")
+        assert bauen.groessenbericht(tmp_path)["qt_plugins"] == ["platforms/libqxcb.so"]
