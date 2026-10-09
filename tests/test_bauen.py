@@ -51,7 +51,7 @@ class TestArgumente:
         assert "--onefile" not in a and "webview.platforms.qt" in a and "PySide6.QtWebEngineWidgets" in a
         ausgeschlossen = [a[i + 1] for i, x in enumerate(a) if x == "--exclude-module"]
         assert "PySide6.QtQml" in ausgeschlossen and "PySide6.QtWebEngineCore" not in ausgeschlossen
-        assert "PySide6.QtQuick" not in ausgeschlossen      # Scenegraph-Plugins, ohne sie GPU-Fehler im Start-Test
+        assert "PySide6.QtQuick" not in ausgeschlossen      # ohne QtQuick GPU-Meldung im Start-Test (2 von 2 Laeufen)
 
     def test_daten_mit_dem_trenner_des_systems(self, tmp_path):
         a = self.args(tmp_path)
@@ -221,6 +221,24 @@ class TestStarttestAuswerten:
                             lambda befehl, env, **kw: subprocess.CompletedProcess(befehl, 1, "", "Absturz"))
         assert bauen.starttest(tmp_path, tmp_path / "starttest.json") == 1
         assert "Absturz" in json.loads((tmp_path / "starttest.json").read_text(encoding="utf-8"))["ausgabe"]
+
+    def test_chromium_fehlerzeilen_gezaehlt(self, tmp_path, monkeypatch, system):
+        """Meldungen von Chromium beenden den Start nicht, werden aber gezaehlt (Vergleich ueber mehrere Laeufe)."""
+        system("linux")
+        (tmp_path / "pdf2md").mkdir()
+        (tmp_path / "pdf2md" / "pdf2md").write_bytes(b"elf")
+        log = ("GLX: No DRI3 Extension.\n[8265:8272:1008/192129.755555:ERROR:../../gpu/ipc/client/"
+               "command_buffer_proxy_impl.cc:127] ContextResult::kTransientFailure\n")
+
+        def laufen(befehl, env, **kw):
+            Path(env["PDF2MD_STARTTEST"]).write_text(json.dumps({"ok": True}), encoding="utf-8")
+            return subprocess.CompletedProcess(befehl, 0, "", log)
+        monkeypatch.setattr(bauen.subprocess, "run", laufen)
+        monkeypatch.setenv("DISPLAY", ":0")                 # kein xvfb-run noetig
+        assert bauen.starttest(tmp_path, tmp_path / "starttest.json") == 0
+        bericht = json.loads((tmp_path / "starttest.json").read_text(encoding="utf-8"))
+        assert bericht["chromium_fehler"] == 1
+        assert '"chromium_fehler": 1' in bauen.hinweise("linux-x86_64", tmp_path, tag="probe")[0]
 
 
 class TestHinweise:

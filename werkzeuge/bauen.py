@@ -55,8 +55,9 @@ def pyinstaller_argumente(ausgabe: Path, arbeit: Path) -> list[str]:
             args += ["--hidden-import", f"qtpy.{modul}", "--hidden-import", f"PySide6.{modul}"]
         # libQt6WebEngineCore braucht QML als Bibliothek (kommt ueber die Abhaengigkeiten mit), das Fenster aber keine
         # QML-Module. Die sammelt PyInstallers Hook fuer das Python-Modul QtQml ein, samt ihrer Bibliotheken (Quick 3D,
-        # Controls-Stile, Graphs, Qt 3D, ...). QtQuick bleibt: es bringt die Scenegraph-Plugins, ueber die Qt
-        # WebEngine zeichnet (ohne QtQuick meldete der Start-Test einen GPU-Fehler).
+        # Controls-Stile, Graphs, Qt 3D, ...). QtQuick bleibt (0,2 MB): ohne es meldete Chromium im Start-Test zweimal
+        # "Failed to send GpuControl.CreateCommandBuffer", mit ihm zweimal nicht. Warum, ist offen (Scenegraph-Plugins
+        # bringt es unter Linux keine mit); der Start-Test zaehlt die Meldungen ("chromium_fehler").
         args += ["--exclude-module", "PySide6.QtQml"]
     return args + [str(WURZEL / "ui_app.py")]
 
@@ -172,7 +173,10 @@ def starttest(ausgabe: Path, bericht: Path) -> int:
             ausgabe_text, code = f"Start nicht moeglich: {e}", None
         daten = (json.loads(ergebnis.read_text(encoding="utf-8")) if ergebnis.exists()
                  else {"ok": False, "fehler": "kein Ergebnis vom Programm"})
-    daten.update(rueckgabe=code, ausgabe=ausgabe_text[-3000:])
+    # Fehlerzeilen von Chromium (Qt WebEngine, Format "[pid:tid:zeit:ERROR:datei]"): beenden den Start nicht, sollen
+    # aber ueber mehrere Laeufe vergleichbar sein (z.B. "Failed to send GpuControl.CreateCommandBuffer" unter xvfb)
+    daten.update(rueckgabe=code, ausgabe=ausgabe_text[-3000:],
+                 chromium_fehler=sum(1 for z in ausgabe_text.splitlines() if ":ERROR:" in z))
     bericht.write_text(json.dumps(daten, ensure_ascii=False, indent=1), encoding="utf-8")
     print(json.dumps(daten, ensure_ascii=False, indent=1))
     return 0 if daten.get("ok") else 1
@@ -274,7 +278,7 @@ def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[s
     test = wurzel / "starttest.json"
     if test.exists():
         d = json.loads(test.read_text(encoding="utf-8"))
-        kurz = {k: d.get(k) for k in ("gui", "angezeigt", "fehler", "rueckgabe")}
+        kurz = {k: d.get(k) for k in ("gui", "angezeigt", "fehler", "rueckgabe", "chromium_fehler")}
         meldungen = [(f"Start-Test {name}", ("OK " if d.get("ok") else "FEHLER ") + json.dumps(kurz, ensure_ascii=False)
                       + "\n" + (d.get("ausgabe") or "")[-2500:])]
     else:
