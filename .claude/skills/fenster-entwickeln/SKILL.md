@@ -10,12 +10,42 @@ description: "Oberfläche und Api ändern: ui_app.py, ui/web/, einstellungen.py,
 1. **Ablage-Kopie** im Scratchpad anlegen: Ordner und `Protokoll.csv` aus `dist` kopieren (lesen ist erlaubt) und in der Kopie die Pfade in `Protokoll.csv` auf die Kopie umschreiben, sonst verschiebt „Rückgängig“ in `dist`. Originale dürfen Platzhalter sein.
 2. **Starten** gegen die Kopie: Fenster mit `PDF2MD_ABLAGE=<kopie> python ui_app.py`, im Browser mit `python werkzeuge/ui_vorschau.py <kopie> 8765`. Die lokale `.claude/launch.json` hat dafür den Eintrag `ui-vorschau`; ihren Pfad auf die aktuelle Kopie setzen. Mit `dist` als Ablage sperrt der Schutz-Hook beide Aufrufe.
 3. **Änderung mit Test**: Api in `tests/test_ui_app.py` (ohne Fenster, `extern_oeffnen`/`link_oeffnen` ersetzt), Kennzahlen in `tests/test_auswertung.py`, Listen in `tests/test_ablage.py`, Einstellungen in `tests/test_einstellungen.py`, Systemzweige in `tests/test_plattform.py`.
-4. **Sichtprüfung** über den Vorschau-Server mit `?thema=hell|dunkel&seite=uebersicht|auswertung|einstellungen&experte=offen`: hell und dunkel, schmal, mittel und breit, dazu Tastaturbedienung. Screenshots per Edge headless oder im eingebauten Browser. Die Gestaltungsregeln stehen in CLAUDE.md (Verbindliche Regeln).
+4. **Sichtprüfung** über den Vorschau-Server mit `?thema=hell|dunkel&seite=uebersicht|auswertung|einstellungen&experte=offen`: hell und dunkel, 1280, 960 und 720 px breit (720 = Mindestbreite des Fensters), dazu Tastaturbedienung. Screenshots per Edge headless oder im eingebauten Browser. Kontrastmodus und reduzierte Bewegung: Rendering-Tool der Edge-DevTools (Emulation von `forced-colors`, `prefers-reduced-motion`).
 5. **Neue Einstellung**: in `einstellungen.EINSTELLUNGEN` eintragen, dann `python werkzeuge/einstellungen_liste.py` (schreibt `docs/einstellungen.md` neu).
 
-Fertig, wenn die Tests grün sind, die Screenshots hell und dunkel ohne Überlauf aussehen und `dist` unverändert ist.
+Fertig, wenn die Tests grün sind, jede geänderte Stelle den Prüfmaßstab unten erfüllt, die Screenshots hell und dunkel in allen drei Breiten ohne Überlauf aussehen und `dist` unverändert ist.
+
+## Prüfmaßstab
+
+Die Gestaltungsregeln in CLAUDE.md (Verbindliche Regeln) gelten zuerst. Für alles, was sie offenlassen:
+
+**Windows 11** (das Fenster soll wie ein Windows-Werkzeug wirken, nicht wie eine Webseite):
+- Schriftstufen: 12/16 Beschriftung, 14/20 Text (halbfett für Betonung), 18/24 Abschnitte und Dialogtitel, 20/28 Seitentitel und große Zahlen, 28/36 einzelne Kennzahl. Keine Zwischengrößen.
+- Mindestens 12 px Schrift, halbfett erst ab 14 px, halbfett (600) statt fett. Satzschreibung, keine Versal-Labels.
+- Zeilen höchstens etwa 60 Zeichen (`max-width: 60ch` für Fließtext).
+- Rundung 4 px für Steuerelemente, Flächen auf der Seite und Tooltips, 8 px für Menüs und Dialoge.
+
+**Texte:**
+- Eine Aktion heißt überall gleich: Menüeintrag, Dialogknopf und Schlussmeldung nutzen dasselbe Verb („Namen reparieren …“ → „Namen reparieren (12)“ → „Namen repariert: 12 umbenannt“).
+- Knöpfe sagen, was passiert. Fehlermeldungen sagen, was passiert ist und was man tun kann; keine pauschale Meldung für verschiedene Ursachen.
+- Leere Zustände sagen, wie man weiterkommt. Mehrzahl richtig bilden („1 Datei“, „3 Dateien“), nie „Datei(en)“.
+- Eine Beschriftung beschreibt genau, was darunter steht; überflüssige Beschriftungen weglassen.
+- Die Statuszeile antwortet auf eine Aktion des Nutzers (Datei geöffnet, Einstellung gespeichert, Fehler); Laufereignisse (Beginn, Ende, Ergebnis) stehen im Laufprotokoll und werden für Screenreader über `#ansage` vorgelesen, nicht zusätzlich in der Statuszeile.
+
+**Bedienbarkeit:**
+- Jedes bedienbare Element hat einen sichtbaren Fokus über `outline`; `box-shadow` allein verschwindet im Windows-Kontrastmodus. Für `forced-colors: active` prüfen.
+- Text unter 18 px braucht mindestens 4,5:1 Kontrast auf jeder Fläche, auf der er steht, hell und dunkel nachgerechnet.
+- Die Live-Region `#status` bleibt in jeder Breite im Dokument; nie per `display: none` verstecken.
+- Nichts nur per Maus: Werte in Diagrammen sind auch per Tastatur und Screenreader erreichbar.
+- Regelmäßige Aktualisierungen (Takt 0,4 s im Lauf) bauen nur neu, was sich geändert hat, und erhalten Fokus und Scrollstand.
+- Bewegung nur als Antwort auf eine Aktion oder als Fortschritt, mit `prefers-reduced-motion`.
+- Keine Fläche mit eigenem Rahmen in einer gerahmten Fläche (Karte in Karte).
 
 ## Hintergrund (aus CLAUDE.md)
+
+- Neuaufbau nur bei Änderung (app.js): `listeErneuern()` für die drei Listen (Kennung aus den Daten; Fokus über `data-ziel` ohne Scrollsprung wiederhergestellt, sonst Element an derselben Stelle bzw. Spaltenüberschrift), Kennungen in `zeigeKennzahlen()` und `zeigeDiagrammeUebersicht()`, `neuZeichnen()` je Diagramm der Auswertung. Im Takt baut `verarbeiteEreignisse()` nur den Eingang; Prüfen, Fertig und Kennzahlen folgen der Signatur. Gemessen im echten Lauf: Fertig 0 Neuaufbauten statt einem je Takt, Fokus bleibt.
+- Diagramme (diagramme.js): `zugang()` macht jedes Diagramm zu einem Tabstopp mit Pfeiltasten, Live-Ansage und unsichtbarer Werteliste; das SVG ist `aria-hidden`. Der gewählte Wert überlebt ein Neuzeichnen (`diagrammAuswahl`).
+- Testumgebung: Im ausgeblendeten eingebauten Browser feuert das `close`-Ereignis von `<dialog>` nicht (Chromium zeichnet nicht). Dialogabläufe dort über die Api (`POST /api/werkzeug_starten`) prüfen oder den Browser einblenden.
 
 - Aufbau: `ui_app.Api` ist die einzige Schnittstelle der Oberfläche (öffentliche Methoden; im Fenster über `window.pywebview.api`, im Entwicklungsserver `werkzeuge/ui_vorschau.py` per `POST /api/<methode>`, erkennbar am meta-Tag `pdf2md-modus`). Die Oberfläche fragt `signatur()` (alle 1,5 s, im Lauf 0,4 s) und `ereignisse(nach)` ab; Python schiebt nichts per `evaluate_js` (Ausnahme: Rückfrage beim Schließen).
 - Lauf: ein Thread zur Zeit (`Api._starten`), `pdf2md.eingang_verarbeiten()` bzw. die Werkzeuge mit `abbrechen`/`datei_beginnt`/`datei_fertig`; Meldungen und Fortschritt kommen über `pdf2md.rueckmeldung(melder, fortschritt)` statt `print` (`melden()`, `fortschritt_melden()`; ohne Fenster bleibt `print`). Abbrechen greift vor der nächsten Datei. Fortschritt gedrosselt (0,2 s). Einstellungen sind während eines Laufs gesperrt.

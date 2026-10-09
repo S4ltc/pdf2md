@@ -243,6 +243,11 @@ def melden(text: str) -> None:
         melder(text)
 
 
+def anzahl(n: int, eins: str, mehr: str) -> str:
+    """Zahl mit richtiger Mehrzahl fuer Meldungen: anzahl(1, "Datei", "Dateien") = "1 Datei" (nie "Datei(en)")."""
+    return f"{n} {eins if n == 1 else mehr}"
+
+
 def fortschritt_melden(phase: str, erledigt: int = 0, gesamt: int = 0) -> None:
     """Fortschritt der aktuellen Datei: Phase und erledigt/gesamt (gesamt 0 = Dauer unbekannt)."""
     ziel = _rueckmeldung["fortschritt"]
@@ -1747,7 +1752,8 @@ def nachbessern(lauf: str) -> int:
         melden(f"   NACHGEBESSERT  {original.name}  ->  {stem}")
         erledigt += 1
     if wartend:
-        melden(f"   {wartend} Datei(en) in Prüfen warten noch auf vollständige Angaben.")
+        melden(f"   {anzahl(wartend, 'Datei', 'Dateien')} in Prüfen "
+               f"{'wartet' if wartend == 1 else 'warten'} noch auf vollständige Angaben.")
     return erledigt
 
 
@@ -1808,7 +1814,7 @@ def namen_reparieren(lauf: str, plan: list[dict] | None = None, abbrechen=None) 
                        jahr_quelle=werte.get("jahr_quelle"), kennung=werte.get("kennung"))
         melden(f"   UMBENANNT  {md.stem}  ->  {stem}")
         erledigt += 1
-    melden(f"{erledigt} von {len(plan)} Datei(en) umbenannt.")
+    melden(f"{erledigt} von {anzahl(len(plan), 'Datei', 'Dateien')} umbenannt.")
     return erledigt
 
 
@@ -1961,7 +1967,7 @@ def text_erneuern(lauf: str, plan: list[dict] | None = None, abbrechen=None, dat
         finally:
             if datei_fertig is not None:
                 datei_fertig(md.stem, status)
-    melden(f"{erledigt} von {len(plan)} Text(e) erneuert. Die alten Fassungen liegen in {SICHERUNG}")
+    melden(f"{erledigt} von {anzahl(len(plan), 'Buch', 'Büchern')} erneuert. Die alten Fassungen liegen in {SICHERUNG}")
     return erledigt
 
 
@@ -1993,7 +1999,7 @@ def rueckgaengig(plan: dict | None = None) -> int:
         melden("Kein Lauf vorhanden, der noch rückgängig gemacht werden kann.")
         return 0
     lauf = plan["lauf"]
-    melden(f"Lauf vom {lauf} wird zurückgedreht ...")
+    melden(f"Lauf vom {lauf} wird rückgängig gemacht …")
     erledigt = 0
     for z in plan["zeilen"]:
         von, nach = Path(z["von_pfad"]), Path(z["nach_pfad"])

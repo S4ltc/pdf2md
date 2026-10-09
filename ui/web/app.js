@@ -6,8 +6,15 @@
   const $ = sel => document.querySelector(sel);
   const D = window.Diagramme;
   const zahl = new Intl.NumberFormat("de-DE");
+  const zahl0 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
+  const zahl1 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
+  const zahlFest1 = new Intl.NumberFormat("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const MODUS = (document.querySelector('meta[name="pdf2md-modus"]') || {}).content === "http" ? "http" : "fenster";
-  const AKTION = { rueckgaengig: "Zurückdrehen", namen: "Umbenennen", text: "Neu umwandeln", literatur: "Exportieren" };
+  /* Eine Aktion heißt überall gleich: Menüeintrag (index.html), Dialogknopf (hier) und Schlussmeldung
+     (zusammenfassung). Python liefert als Laufart den Menütitel (ui_app.WERKZEUGE). */
+  const AKTION = { rueckgaengig: "Rückgängig machen", namen: "Namen reparieren", text: "Text erneuern",
+    literatur: "Literaturliste exportieren" };
+  const LAUF_KURZ = { "Letzten Lauf rückgängig machen": "Rückgängig machen" };
   const HERKUNFT = [
     { name: "Crossref", farbe: "akzent" }, { name: "Norm", farbe: "akzent-linie" }, { name: "Text", farbe: "grau-1" },
     { name: "PDF-Metadaten", farbe: "grau-2" }, { name: "Dokument", farbe: "grau-3" },
@@ -26,14 +33,35 @@
     window.addEventListener("pywebviewready", () => los(), { once: true });
   });
 
+  /* Fehler unterscheiden: keine Verbindung (Vorschau-Server weg) oder Fehler in Python (Ausnahme, HTTP 500) */
+  function rufFehler(methode, grund, verbindung) {
+    const f = new Error(grund);
+    f.methode = methode;
+    f.verbindung = verbindung;
+    return f;
+  }
   async function rufe(methode, ...args) {
     await bereit;
-    if (MODUS === "fenster") return window.pywebview.api[methode](...args);
-    const antwort = await fetch("/api/" + methode, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args),
-    });
-    if (!antwort.ok) throw new Error(`${methode}: ${antwort.status}`);
+    if (MODUS === "fenster") {
+      try { return await window.pywebview.api[methode](...args); }
+      catch (f) { throw rufFehler(methode, (f && f.message) || String(f), false); }
+    }
+    let antwort;
+    try {
+      antwort = await fetch("/api/" + methode, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(args),
+      });
+    } catch (f) {
+      throw rufFehler(methode, f.message, true);
+    }
+    if (!antwort.ok) throw rufFehler(methode, `HTTP ${antwort.status}`, false);
     return antwort.json();
+  }
+  function fehlerText(f) {
+    if (f && f.verbindung) return "Keine Verbindung zum Programm. pdf2md neu starten.";
+    const grund = f && f.message ? f.message : String(f);
+    return `Programmfehler${f && f.methode ? ` bei „${f.methode}“` : ""}: ${grund}. Erneut versuchen; ` +
+      "bleibt der Fehler, pdf2md neu starten.";
   }
 
   /* ------------------------------------------------------------ Hilfen */
@@ -43,10 +71,14 @@
     if (inhalt != null) e.textContent = inhalt;
     return e;
   }
+  /* Mehrzahl richtig bilden: anzahl(1, "Datei", "Dateien") = "1 Datei" */
+  function anzahl(n, eins, mehr) {
+    return `${zahl.format(n)} ${n === 1 ? eins : mehr}`;
+  }
   function groesse(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${zahl.format(Math.round(bytes / 1024))} KB`;
-    return `${new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 }).format(bytes / 1048576)} MB`;
+    return `${zahl1.format(bytes / 1048576)} MB`;
   }
   function datum(iso) {
     const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(iso || "");
@@ -62,13 +94,20 @@
     return m ? `${m} min ${String(s).padStart(2, "0")} s` : `${s} s`;
   }
   function prozent(anteil) {
-    return anteil == null ? "–" : `${new Intl.NumberFormat("de-DE", { maximumFractionDigits: anteil < 0.1 ? 1 : 0 }).format(anteil * 100)} %`;
+    return anteil == null ? "–" : `${(anteil < 0.1 ? zahl1 : zahl0).format(anteil * 100)} %`;
   }
   function normal(text) {
     return (text || "").toLocaleLowerCase("de-DE").normalize("NFD").replace(/[̀-ͯ]/g, "");
   }
+  /* Statuszeile: Antwort auf eine Aktion des Nutzers. Lange Texte stehen vollständig im title. */
   function melde(text) {
-    $("#status").textContent = text || "";
+    const status = $("#status");
+    status.textContent = text || "";
+    status.title = text || "";
+  }
+  /* Laufereignisse stehen im Laufprotokoll; Screenreader hören sie über diese Live-Region */
+  function ansagen(text) {
+    $("#ansage").textContent = text || "";
   }
   function speicherLesen(schluessel) {
     try { return localStorage.getItem("pdf2md." + schluessel); } catch (e) { return null; }
@@ -87,7 +126,7 @@
     speicherSchreiben("seite", name);
     if (name === "auswertung") ladeAuswertung();
     if (name === "einstellungen") ladeEinstellungen();
-    if (name === "uebersicht") zeigeDiagrammeUebersicht();
+    if (name === "uebersicht") zeigeDiagrammeUebersicht(true);
   }
 
   /* ------------------------------------------------------------ Übersicht */
@@ -129,12 +168,46 @@
     return { text: status, fehler: false };
   }
 
+  /* Liste nur neu aufbauen, wenn sich ihr Inhalt geändert hat (Kennung), und dabei Fokus und Scrollstand
+     erhalten. Sonst ginge im Takt (0,4 s während eines Laufs) der Tastaturfokus verloren, und ein Klick
+     könnte ein Element treffen, das zwischen Drücken und Loslassen ersetzt wurde. Bedienbare Elemente in
+     Listen tragen data-ziel, daran wird der Fokus nach dem Neuaufbau wiedergefunden. */
+  function listeErneuern(liste, kennung, baue) {
+    if (liste.dataset.kennung === kennung) return;
+    const aktiv = document.activeElement;
+    const drin = !!aktiv && liste.contains(aktiv);
+    const ziel = drin ? aktiv.dataset.ziel : null;
+    const stelle = drin ? Array.from(liste.querySelectorAll("[data-ziel]")).indexOf(aktiv) : -1;
+    const scroll = liste.scrollTop;
+    liste.textContent = "";
+    baue(liste);
+    liste.dataset.kennung = kennung;
+    liste.scrollTop = scroll;
+    if (!drin) return;
+    // dasselbe Element; ist die Datei weg (verschoben), das an derselben Stelle; ist die Liste leer, die Überschrift
+    // der Spalte. preventScroll: der Scrollstand oben gilt, Liste und Seite springen nicht zum Element.
+    const ziele = Array.from(liste.querySelectorAll("[data-ziel]"));
+    let neu = ziele.find(e => e.dataset.ziel === ziel) || ziele[Math.min(Math.max(stelle, 0), ziele.length - 1)];
+    if (!neu) {
+      neu = liste.closest(".spalte").querySelector("h2");
+      neu.tabIndex = -1;
+    }
+    neu.focus({ preventScroll: true });
+  }
+
   function zeigeUebersicht() {
+    if (!zustand.stand) return;
+    zeigeEingang();
+    zeigePruefen();
+    zeigeFertig();
+    zeigeKennzahlen();
+    zeigeDiagrammeUebersicht();
+  }
+
+  function zeigeEingang() {
     const s = zustand.stand;
     if (!s) return;
     // Eingang: Dateien des laufenden Laufs zuerst (mit Status), dann der Rest
-    const liste = $("#liste-eingang");
-    liste.textContent = "";
     const eingang = new Map(s.eingang.map(e => [e.name, e]));
     const lauf = zustand.lauf && zustand.lauf.art === "Umwandlung" ? zustand.lauf : null;
     const eintraege = [];
@@ -145,45 +218,48 @@
       }
     }
     for (const e of eingang.values()) eintraege.push({ name: e.name, datei: e, status: zustand.fehler[e.name] });
-    for (const e of eintraege) {
-      const li = element("li");
-      // schon verarbeitete Dateien des Laufs liegen nicht mehr im Eingang: nur anzeigen
-      const name = e.datei ? dateiKnopf("eingang", e.name, e.name, "original", `${e.name} öffnen`)
-        : element("span", "name", e.name);
-      name.title = e.datei ? `${e.name} öffnen` : e.name;
-      const aktionen = element("span", "datei-aktionen");
-      aktionen.append(element("span", "neben", e.datei ? `${e.datei.format} · ${groesse(e.datei.groesse)}` : ""));
-      li.append(name, aktionen);
-      const st = statusText(e.status, e.name);
-      if (st.text) li.append(element("span", "unter" + (st.fehler ? " fehler-text" : ""), st.text));
-      if (e.status === "läuft") li.classList.add("aktiv");
-      if (st.fehler) li.classList.add("fehler");
-      liste.appendChild(li);
-    }
+    const kennung = JSON.stringify(eintraege.map(e => [e.name, e.datei && e.datei.format, e.datei && e.datei.groesse, e.status]));
+    listeErneuern($("#liste-eingang"), kennung, liste => {
+      for (const e of eintraege) {
+        const li = element("li");
+        // schon verarbeitete Dateien des Laufs liegen nicht mehr im Eingang: nur anzeigen
+        const name = e.datei ? dateiKnopf("eingang", e.name, e.name, "original", `${e.name} öffnen`)
+          : element("span", "name", e.name);
+        name.title = e.datei ? `${e.name} öffnen` : e.name;
+        const aktionen = element("span", "datei-aktionen");
+        aktionen.append(element("span", "neben", e.datei ? `${e.datei.format} · ${groesse(e.datei.groesse)}` : ""));
+        li.append(name, aktionen);
+        const st = statusText(e.status, e.name);
+        if (st.text) li.append(element("span", "unter" + (st.fehler ? " fehler-text" : ""), st.text));
+        if (e.status === "läuft") li.classList.add("aktiv");
+        if (st.fehler) li.classList.add("fehler");
+        liste.appendChild(li);
+      }
+    });
     $("#anzahl-eingang").textContent = s.eingang.length ? zahl.format(s.eingang.length) : "";
     $("#leer-eingang").hidden = eintraege.length > 0;
-    $("#eingang-liste-titel").hidden = !zustand.lauf || !eintraege.length;
+    $("#eingang-liste-titel").hidden = !lauf || !eintraege.length;     // Stand je Datei gibt es nur bei Umwandlungen
+  }
 
+  function zeigePruefen() {
+    const s = zustand.stand;
+    if (!s) return;
     // Prüfen: Name öffnet die .md (dort den Kopfblock ergänzen), das Formatkürzel das Original
-    const pruefen = $("#liste-pruefen");
-    pruefen.textContent = "";
-    for (const e of s.pruefen) {
-      const li = element("li");
-      const aktionen = element("span", "datei-aktionen");
-      if (e.format !== "?") aktionen.append(formatKnopf("pruefen", e.md, e.format, e.name));
-      li.append(dateiKnopf("pruefen", e.md, e.name, "md", `${e.md} öffnen (Kopfblock ergänzen)`), aktionen);
-      const unter = [e.grund, !e.bereit && !e.grund.includes(e.hinweis) ? e.hinweis : ""].filter(Boolean).join(" · ");
-      if (unter) li.append(element("span", "unter", unter));
-      if (e.bereit) li.append(element("span", "marke-bereit", "bereit zur Übernahme"));
-      pruefen.appendChild(li);
-    }
+    listeErneuern($("#liste-pruefen"), JSON.stringify(s.pruefen), liste => {
+      for (const e of s.pruefen) {
+        const li = element("li");
+        const aktionen = element("span", "datei-aktionen");
+        if (e.format !== "?") aktionen.append(formatKnopf("pruefen", e.md, e.format, e.name));
+        li.append(dateiKnopf("pruefen", e.md, e.name, "md", `${e.md} öffnen (Kopfblock ergänzen)`), aktionen);
+        const unter = [e.grund, !e.bereit && !e.grund.includes(e.hinweis) ? e.hinweis : ""].filter(Boolean).join(" · ");
+        if (unter) li.append(element("span", "unter", unter));
+        if (e.bereit) li.append(element("span", "marke-bereit", "bereit zur Übernahme"));
+        liste.appendChild(li);
+      }
+    });
     const bereit = s.pruefen.filter(e => e.bereit).length;
     $("#anzahl-pruefen").textContent = s.pruefen.length ? zahl.format(s.pruefen.length) + (bereit ? `, ${bereit} bereit` : "") : "";
     $("#leer-pruefen").hidden = s.pruefen.length > 0;
-
-    zeigeFertig();
-    zeigeKennzahlen();
-    zeigeDiagrammeUebersicht();
   }
 
   /* Dateien öffnen (Standardprogramm von Windows): Name = .md bzw. Datei im Eingang, Formatkürzel = Original */
@@ -195,12 +271,14 @@
     const knopf = element("button", "name-knopf", anzeige);
     knopf.type = "button";
     knopf.title = titel;
+    knopf.dataset.ziel = `${art}:${name}`;
     knopf.addEventListener("click", () => oeffnen(bereich, name, art));
     return knopf;
   }
   function formatKnopf(bereich, md, format, anzeige) {
     const knopf = element("button", "knopf-text format-knopf", format);
     knopf.type = "button";
+    knopf.dataset.ziel = `original:${md}`;
     knopf.title = `Original öffnen (${format})`;
     knopf.setAttribute("aria-label", `${anzeige}: Original (${format}) öffnen`);
     knopf.addEventListener("click", () => oeffnen(bereich, md, "original"));
@@ -210,20 +288,20 @@
   function zeigeFertig() {
     const s = zustand.stand;
     if (!s) return;
-    const liste = $("#liste-fertig");
-    liste.textContent = "";
     const filter = normal(zustand.filter.trim());
     const treffer = filter ? s.fertig.filter(e => normal(e.name).includes(filter)) : s.fertig;
-    const rest = document.createDocumentFragment();
-    for (const e of treffer) {
-      const li = element("li");
-      const aktionen = element("span", "datei-aktionen");
-      aktionen.append(element("span", "neben", datum(e.datum)));
-      if (e.format !== "?") aktionen.append(formatKnopf("fertig", e.md, e.format, e.name));
-      li.append(dateiKnopf("fertig", e.md, e.name, "md", `${e.name}.md öffnen`), aktionen);
-      rest.appendChild(li);
-    }
-    liste.appendChild(rest);
+    listeErneuern($("#liste-fertig"), filter + "\n" + JSON.stringify(treffer), liste => {
+      const rest = document.createDocumentFragment();
+      for (const e of treffer) {
+        const li = element("li");
+        const aktionen = element("span", "datei-aktionen");
+        aktionen.append(element("span", "neben", datum(e.datum)));
+        if (e.format !== "?") aktionen.append(formatKnopf("fertig", e.md, e.format, e.name));
+        li.append(dateiKnopf("fertig", e.md, e.name, "md", `${e.name}.md öffnen`), aktionen);
+        rest.appendChild(li);
+      }
+      liste.appendChild(rest);
+    });
     $("#anzahl-fertig").textContent = filter ? `${zahl.format(treffer.length)} von ${zahl.format(s.fertig.length)}`
       : (s.fertig.length ? zahl.format(s.fertig.length) : "");
     const leer = $("#leer-fertig");
@@ -233,6 +311,10 @@
 
   function zeigeKennzahlen() {
     const k = zustand.stand.kennzahlen;
+    const dl0 = $("#kennzahlen");
+    const kennung = JSON.stringify(k);
+    if (dl0.dataset.kennung === kennung) return;
+    dl0.dataset.kennung = kennung;
     if (!k) {                                   // Kennzahlen rechnet Python noch im Hintergrund (viele Bücher)
       const dl = $("#kennzahlen");
       dl.textContent = "";
@@ -266,7 +348,7 @@
   function laufDaten(laeufe, wert) {
     return laeufe.map(l => ({
       label: kurzdatum(l.lauf), wert: wert(l), reihe: l.art,
-      tipp: `${datum(l.lauf)} · ${l.art}: ${zahl.format(l.dateien)} Dateien` + (l.pruefen ? `, ${l.pruefen} nach Prüfen` : "")
+      tipp: `${datum(l.lauf)} · ${l.art}: ${anzahl(l.dateien, "Datei", "Dateien")}` + (l.pruefen ? `, ${l.pruefen} nach Prüfen` : "")
         + (l.fehler ? `, ${l.fehler} Fehler` : "") + (l.seiten_pro_min ? ` · ${zahl.format(l.seiten_pro_min)} Seiten/min` : ""),
     }));
   }
@@ -275,13 +357,19 @@
     return [["Titel", "titel"], ["Autor", "autor"], ["Jahr", "jahr"]].map(([label, feld]) => ({ label, werte: h[feld] || {} }));
   }
 
-  function zeigeDiagrammeUebersicht() {
+  /* neu gezeichnet wird nur bei anderen Daten oder anderer Breite (sonst ginge der Tastaturfokus im Diagramm
+     bei jeder Änderung der Ordner verloren); erzwingen = nach einem Seitenwechsel */
+  function zeigeDiagrammeUebersicht(erzwingen) {
     const s = zustand.stand;
     if (!s || zustand.seite !== "uebersicht") return;
+    const mini = $("#seite-uebersicht .mini");
+    const kennung = JSON.stringify(s.mini) + "|" + mini.clientWidth;
+    if (!erzwingen && mini.dataset.kennung === kennung) return;
+    mini.dataset.kennung = kennung;
     const laeufe = s.mini.laeufe;
     D.saeulen($("#mini-laeufe"), laufDaten(laeufe, l => l.dateien), {
       hoehe: 132, reihen: LAUFARTEN.filter(r => laeufe.some(l => l.art === r.name)), leer: "Noch kein Lauf im Protokoll.",
-      beschreibung: `Dateien je Lauf, ${laeufe.length} Läufe`,
+      beschreibung: `Dateien je Lauf, ${anzahl(laeufe.length, "Lauf", "Läufe")}`,
     });
     D.gestapelt($("#mini-herkunft"), s.mini.herkunft ? herkunftZeilen(s.mini.herkunft) : [], HERKUNFT, {
       leer: s.mini.herkunft ? "Noch keine Bücher." : "Wird berechnet …", beschreibung: "Herkunft von Titel, Autor und Jahr",
@@ -364,18 +452,25 @@
     $("#protokoll-letzte").textContent = text;
   }
 
+  function laufName(art) {
+    return LAUF_KURZ[art] || art;
+  }
   function zusammenfassung(e) {
-    if (e.fehler) return `${e.lauf_art}: abgebrochen mit Fehler (${e.fehler})`;
+    if (e.fehler) return `${laufName(e.lauf_art)} abgebrochen, Fehler: ${e.fehler}`;
     const r = e.ergebnis || {};
     const ab = r.abgebrochen ? " (abgebrochen)" : "";
     if (e.lauf_art === "Umwandlung") {
-      return `Lauf beendet${ab}: ${r.ok} fertig, ${r.pruefen} nach Prüfen, ${r.fehler} Fehler` +
-        (r.nachgebessert ? `, ${r.nachgebessert} aus Prüfen übernommen` : "");
+      return `Umwandlung beendet${ab}: ${zahl.format(r.ok)} fertig, ${zahl.format(r.pruefen)} nach Prüfen, ` +
+        `${zahl.format(r.fehler)} Fehler` + (r.nachgebessert ? `, ${zahl.format(r.nachgebessert)} aus Prüfen übernommen` : "");
     }
-    if ("erneuert" in r) return `Text erneuert${ab}: ${r.erneuert} Bücher`;
-    if ("umbenannt" in r) return `Namen repariert${ab}: ${r.umbenannt} umbenannt`;
-    if ("zurueck" in r) return `Rückgängig: ${r.zurueck} Dateien zurückgedreht`;
-    return `${e.lauf_art} beendet`;
+    if ("erneuert" in r) return `Text erneuert${ab}: ${anzahl(r.erneuert, "Buch", "Bücher")}`;
+    if ("umbenannt" in r) return `Namen repariert${ab}: ${anzahl(r.umbenannt, "Datei", "Dateien")} umbenannt`;
+    if ("zurueck" in r) return `Letzter Lauf rückgängig gemacht: ${anzahl(r.zurueck, "Datei", "Dateien")} an den alten Ort zurück`;
+    if ("eintraege" in r) {
+      const datei = String(r.datei || "").split(/[\\/]/).pop();
+      return `Literaturliste exportiert: ${anzahl(r.eintraege, "Eintrag", "Einträge")}` + (datei ? ` in ${datei}` : "");
+    }
+    return `${laufName(e.lauf_art)} beendet`;
   }
 
   function verarbeiteEreignisse(antwort) {
@@ -385,20 +480,23 @@
       if (e.art === "meldung") protokollZeile(e.zeit, e.text, /^FEHLER|^\s*FEHLER/.test(e.text));
       else if (e.art === "lauf_beginnt") {
         if (e.lauf_art === "Umwandlung") zustand.fehler = {};
-        protokollZeile(e.zeit, `${e.lauf_art} gestartet`);
-        melde(`${e.lauf_art} läuft …`);
+        const text = `${laufName(e.lauf_art)} gestartet`;
+        protokollZeile(e.zeit, text);
+        ansagen(text);
+        melde("");                                  // alte Antwort auf eine Aktion passt nicht mehr
       } else if (e.art === "datei_fertig" && String(e.status).startsWith("FEHLER")) zustand.fehler[e.name] = e.status;
       else if (e.art === "lauf_ende") {
         ende = true;
         const text = zusammenfassung(e);
         protokollZeile(e.zeit, text, !!e.fehler);
-        melde(text);
+        ansagen(text);
       }
     }
     const vorher = !!zustand.lauf;
     zustand.lauf = antwort.lauf;
     zeigeLauf();
-    if (zustand.lauf || vorher || ende) zeigeUebersicht();
+    // im Takt nur der Eingang (Status je Datei); Prüfen, Fertig, Kennzahlen und Diagramme folgen der Signatur
+    if (zustand.lauf || vorher || ende) zeigeEingang();
     if (ende && zustand.seite === "einstellungen") ladeEinstellungen();
     if (ende && zustand.seite === "auswertung") ladeAuswertung();
   }
@@ -416,7 +514,7 @@
       const signatur = await rufe("signatur");
       if (signatur !== zustand.signatur) await ladeStand();
     } catch (fehler) {
-      melde("Keine Verbindung zum Programm: " + fehler.message);
+      melde(fehlerText(fehler));
     } finally {
       taktLaeuft = false;
       setTimeout(takt, zustand.lauf ? 400 : 1500);
@@ -428,7 +526,7 @@
     const antwort = await rufe("hinzufuegen_dialog");
     if (antwort.hinweis) return melde(antwort.hinweis);
     const teile = [];
-    if (antwort.kopiert.length) teile.push(`${antwort.kopiert.length} Datei(en) nach Eingang kopiert`);
+    if (antwort.kopiert.length) teile.push(`${anzahl(antwort.kopiert.length, "Datei", "Dateien")} nach Eingang kopiert`);
     if (antwort.abgelehnt.length) teile.push("abgelehnt: " + antwort.abgelehnt.map(([n, g]) => `${n} (${g})`).join(", "));
     if (teile.length) melde(teile.join("; "));
     await ladeStand();
@@ -485,7 +583,7 @@
       if (e.neu) li.append(element("span", "neu", e.neu));
       liste.appendChild(li);
     }
-    liste.setAttribute("aria-label", `${v.anzahl} Einträge`);
+    liste.setAttribute("aria-label", anzahl(v.anzahl, "Eintrag", "Einträge"));
     const ausfuehren = $("#werkzeug-ausfuehren");
     ausfuehren.hidden = v.leer;
     ausfuehren.textContent = `${AKTION[name]} (${zahl.format(v.anzahl)})`;
@@ -548,11 +646,17 @@
     const s = String(schritt);
     return s.includes(".") ? s.split(".")[1].length : 0;
   }
+  const formate = new Map();                    // je Anzahl Nachkommastellen ein Format, nicht je Aufruf
+  function festFormat(stellen) {
+    if (!formate.has(stellen)) {
+      formate.set(stellen, new Intl.NumberFormat("de-DE", { minimumFractionDigits: stellen, maximumFractionDigits: stellen }));
+    }
+    return formate.get(stellen);
+  }
   function wertText(e, wert) {
     if (e.typ === "bool") return wert ? "an" : "aus";
     if (e.typ === "wahl") return (e.optionen.find(o => o[0] === wert) || [wert, wert])[1];
-    const stellen = e.typ === "float" ? nachkommastellen(e.schritt) : 0;
-    const text = new Intl.NumberFormat("de-DE", { minimumFractionDigits: stellen, maximumFractionDigits: stellen }).format(wert);
+    const text = festFormat(e.typ === "float" ? nachkommastellen(e.schritt) : 0).format(wert);
     return e.einheit ? `${text} ${e.einheit}` : text;
   }
 
@@ -674,7 +778,7 @@
     clearTimeout(geplant.get(e.schluessel));
     geplant.set(e.schluessel, setTimeout(() => {
       geplant.delete(e.schluessel);
-      schlange = schlange.then(() => setzen(e, wert)).catch(f => melde("Speichern fehlgeschlagen: " + f.message));
+      schlange = schlange.then(() => setzen(e, wert)).catch(f => melde("Speichern fehlgeschlagen. " + fehlerText(f)));
     }, 250));
   }
 
@@ -775,27 +879,48 @@
     zeigeAuswertung();
   }
 
+  /* true, wenn Daten oder Breite anders sind als beim letzten Zeichnen. Im Lauf ändert sich die Auswertung je
+     Datei; unveränderte Diagramme bleiben stehen, damit ein per Pfeiltaste gewählter Wert nicht verloren geht. */
+  function neuZeichnen(ziel, daten) {
+    const kennung = JSON.stringify(daten) + "|" + ziel.clientWidth;
+    if (ziel.dataset.kennung === kennung) return false;
+    ziel.dataset.kennung = kennung;
+    return true;
+  }
+
   function zeigeAuswertung() {
     const a = zustand.auswertung;
     if (!a || zustand.seite !== "auswertung") return;
-    D.balken($("#d-bereiche"), Object.entries(a.bestand.bereiche).map(([label, wert]) => ({ label, wert })),
-      { beschreibung: "Dateien je Bereich" });
-    D.balken($("#d-formate"), Object.entries(a.bestand.formate).map(([label, wert]) => ({ label, wert })),
-      { beschreibung: "Dateien je Format", leer: "Keine Dateien." });
+    if (neuZeichnen($("#d-bereiche"), a.bestand.bereiche)) {
+      D.balken($("#d-bereiche"), Object.entries(a.bestand.bereiche).map(([label, wert]) => ({ label, wert })),
+        { beschreibung: "Dateien je Bereich" });
+    }
+    if (neuZeichnen($("#d-formate"), a.bestand.formate)) {
+      D.balken($("#d-formate"), Object.entries(a.bestand.formate).map(([label, wert]) => ({ label, wert })),
+        { beschreibung: "Dateien je Format", leer: "Keine Dateien." });
+    }
     const mitTempo = a.laeufe.filter(l => l.seiten_pro_min);
-    D.saeulen($("#d-tempo"), laufDaten(mitTempo, l => l.seiten_pro_min).map((d, i) => Object.assign(d, {
-      tipp: `${datum(mitTempo[i].lauf)} · ${mitTempo[i].art}: ${zahl.format(mitTempo[i].seiten_pro_min)} Seiten/min ` +
-        `(${zahl.format(mitTempo[i].seiten)} Seiten in ${dauer(mitTempo[i].dauer_s)})`,
-    })), { hoehe: 180, reihen: LAUFARTEN.filter(r => mitTempo.some(l => l.art === r.name)),
-      beschreibung: "Seiten pro Minute je Lauf", leer: "Noch kein Lauf mit Dauer und Seitenzahl." });
-    D.streuung($("#d-dauer"), a.dauern.map(d => ({ x: d.seiten, y: d.dauer_s,
-      tipp: `${d.name}: ${zahl.format(d.seiten)} Seiten, ${dauer(d.dauer_s)}` })),
-    { hoehe: 200, xName: "Seiten", yName: "Sekunden", beschreibung: "Dauer gegen Seitenzahl je Datei",
-      leer: "Noch keine Umwandlung mit Dauer." });
-    D.gestapelt($("#d-herkunft"), herkunftZeilen(a.herkunft), HERKUNFT,
-      { beschreibung: "Herkunft von Titel, Autor und Jahr", leer: "Noch keine Bücher." });
-    D.balken($("#d-gruende"), a.pruefgruende.map(([label, wert]) => ({ label, wert })),
-      { beschreibung: "Häufigste Prüfgründe", leer: "Keine Datei in Prüfen.", farbe: "grau-2" });
+    if (neuZeichnen($("#d-tempo"), mitTempo)) {
+      D.saeulen($("#d-tempo"), laufDaten(mitTempo, l => l.seiten_pro_min).map((d, i) => Object.assign(d, {
+        tipp: `${datum(mitTempo[i].lauf)} · ${mitTempo[i].art}: ${zahl.format(mitTempo[i].seiten_pro_min)} Seiten/min ` +
+          `(${zahl.format(mitTempo[i].seiten)} Seiten in ${dauer(mitTempo[i].dauer_s)})`,
+      })), { hoehe: 180, reihen: LAUFARTEN.filter(r => mitTempo.some(l => l.art === r.name)),
+        beschreibung: "Seiten pro Minute je Lauf", leer: "Noch kein Lauf mit Dauer und Seitenzahl." });
+    }
+    if (neuZeichnen($("#d-dauer"), a.dauern)) {
+      D.streuung($("#d-dauer"), a.dauern.map(d => ({ x: d.seiten, y: d.dauer_s,
+        tipp: `${d.name}: ${zahl.format(d.seiten)} Seiten, ${dauer(d.dauer_s)}` })),
+      { hoehe: 200, xName: "Seiten", yName: "Sekunden", beschreibung: "Dauer gegen Seitenzahl je Datei",
+        leer: "Noch keine Umwandlung mit Dauer." });
+    }
+    if (neuZeichnen($("#d-herkunft"), a.herkunft)) {
+      D.gestapelt($("#d-herkunft"), herkunftZeilen(a.herkunft), HERKUNFT,
+        { beschreibung: "Herkunft von Titel, Autor und Jahr", leer: "Noch keine Bücher." });
+    }
+    if (neuZeichnen($("#d-gruende"), a.pruefgruende)) {
+      D.balken($("#d-gruende"), a.pruefgruende.map(([label, wert]) => ({ label, wert })),
+        { beschreibung: "Häufigste Prüfgründe", leer: "Keine Datei in Prüfen.", farbe: "grau-2" });
+    }
     D.meter($("#d-ieee"), a.ieee[0], a.ieee[1], { beschreibung: "Bücher mit vollständiger Quellenangabe",
       text: "Vollständig heißt: Verlag und Ort über DOI/ISBN nachgeschlagen, oder Norm.", leer: "Noch keine Bücher." });
 
@@ -831,7 +956,7 @@
       const name = element("td", null, b.name);
       name.title = b.name;
       tr.append(name, ...[b.seiten, b.fragezeichen, b.unsicher, b.nur_pdf].map(w => element("td", "zahl", zahl.format(w))),
-        element("td", "zahl", new Intl.NumberFormat("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(b.je_100)));
+        element("td", "zahl", zahlFest1.format(b.je_100)));
       tbody.appendChild(tr);
     }
   }
@@ -878,10 +1003,7 @@
 
   function einrichten() {
     // Fehler einer Python-Abfrage, die keine Stelle selbst behandelt, landen sichtbar in der Statuszeile
-    window.addEventListener("unhandledrejection", e => {
-      const grund = e.reason && e.reason.message ? e.reason.message : String(e.reason);
-      melde("Fehler: " + grund);
-    });
+    window.addEventListener("unhandledrejection", e => melde(fehlerText(e.reason)));
     // ?thema=hell|dunkel und ?seite=... nur fuer Tests und Screenshots (werkzeuge/ui_vorschau.py)
     const thema = new URLSearchParams(location.search).get("thema");
     if (thema === "hell" || thema === "dunkel") document.documentElement.dataset.theme = thema === "hell" ? "light" : "dark";
@@ -922,7 +1044,7 @@
     groesseBeobachten();
     const seite = new URLSearchParams(location.search).get("seite") || speicherLesen("seite");
     zeigeSeite(["uebersicht", "auswertung", "einstellungen"].includes(seite) ? seite : "uebersicht");
-    ladeStand().catch(f => melde("Keine Verbindung zum Programm: " + f.message)).finally(takt);
+    ladeStand().catch(f => melde(fehlerText(f))).finally(takt);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", einrichten);

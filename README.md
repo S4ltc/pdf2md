@@ -58,7 +58,7 @@ werden. Danach unter Werkzeuge → „Text erneuern“ die vorhandenen Bücher m
 
 | Bereich | Inhalt |
 |---|---|
-| **Übersicht** | Drei Spalten: Eingang (Name, Format, Größe), Prüfen (Grund, „bereit zur Übernahme“, sobald der Kopfblock vollständig ist), Fertig (neuer Name, Neueste oben, Filterfeld). Ein Klick auf den Namen öffnet die Datei mit dem Standardprogramm (in Prüfen und Fertig die `.md`, zum Beispiel um den Kopfblock zu ergänzen), das Formatkürzel daneben („PDF“) das Original; „Ordner“ im Spaltenkopf öffnet den Ordner im Explorer. Während eines Laufs steht die aktuelle Datei abgesetzt oben, darunter die Warteschlange. Darunter vier Kennzahlen und zwei kleine Diagramme. Die Listen aktualisieren sich selbst, wenn sich die Ordner ändern. |
+| **Übersicht** | Drei Spalten: Eingang (Name, Format, Größe), Prüfen (Grund, „bereit zur Übernahme“, sobald der Kopfblock vollständig ist), Fertig (neuer Name, Neueste oben, Filterfeld). Ein Klick auf den Namen öffnet die Datei mit dem Standardprogramm (in Prüfen und Fertig die `.md`, zum Beispiel um den Kopfblock zu ergänzen), das Formatkürzel daneben („PDF“) das Original; „Ordner“ im Spaltenkopf öffnet den Ordner im Explorer. Während eines Laufs steht die aktuelle Datei oben, darunter der Stand je Datei (fertig, nach Prüfen, Fehler). Darunter vier Kennzahlen und zwei kleine Diagramme. Die Listen aktualisieren sich selbst, wenn sich die Ordner ändern. |
 | **Auswertung** | Bestand und Durchsatz (Dateien je Bereich, Formate, Seiten pro Minute je Lauf, Dauer gegen Seitenzahl), Metadaten-Qualität (Herkunft von Titel/Autor/Jahr, häufigste Prüfgründe, Anteil mit vollständiger IEEE-Quellenangabe), Text-Qualität (je Punkt Wert und höchstmögliche Anzahl, etwa „1.237 / 10.083 Formelzeilen“ unsicher markiert, gezählt über die Bücher, bei denen das Verfahren lief, dazu die Bücher mit den meisten offenen Stellen). |
 | **Einstellungen** | Alle Schalter und Schwellen (siehe unten), mit Tooltip nach kurzem Verweilen. |
 | **Werkzeuge** | Letzten Lauf rückgängig machen, Namen reparieren, Text erneuern, Literaturliste exportieren (BibTeX, siehe [Quellenangabe](#quellenangabe-ieee-apa-7-din-iso-690-bibtex)) (je mit Tooltip): jeweils erst eine vollständige Vorschau, ausgeführt wird erst nach Bestätigung. |
@@ -381,24 +381,24 @@ Abschalten im Fenster unter Einstellungen (`FORMELSATZ`). Im Kopfblock steht unt
 
 Werkzeuge → **Text erneuern …**: wandelt den Text der PDFs in `Fertig` mit dem aktuellen Verfahren neu um. **Namen,
 Ordner und Kopfblock bleiben** (auch von Hand ergänzte Angaben). Die alten `.md`-Dateien werden vorher in den Ordner
-`Sicherung` kopiert. Die Vorschau listet alle betroffenen Bücher; erst „Neu umwandeln“ startet. Fortschritt und
-Abbrechen wie bei „Starten“. Dateien, die schon mit dem aktuellen Verfahren erzeugt wurden, erscheinen nicht. Das Zurückdrehen geht von Hand: die Datei aus `Sicherung` zurückkopieren.
+`Sicherung` kopiert. Die Vorschau listet alle betroffenen Bücher; erst „Text erneuern (Anzahl)“ startet. Fortschritt und
+Abbrechen wie bei „Starten“. Dateien, die schon mit dem aktuellen Verfahren erzeugt wurden, erscheinen nicht. Rückgängig machen geht hier nur von Hand: die Datei aus `Sicherung` zurückkopieren.
 Fehlt im Kopfblock die Quellenangabe (ältere `.md`), wird sie dabei ergänzt; von Hand eingetragene Angaben bleiben.
 
 ## Namen in `Fertig` reparieren
 
 Werkzeuge → **Namen reparieren …**: bildet die Namen in `Fertig` neu aus `titel`, `autor` und `jahr` im Kopfblock der
 `.md` und benennt Dateien um, deren Name nicht passt. Das hilft zum Beispiel bei Namen, die eine ältere Version auf 120
-Zeichen abgeschnitten hat (Autor und Jahr fehlten dann). Die **Vorschau** zeigt je Datei alt → neu; erst „Umbenennen“
-führt sie aus.
+Zeichen abgeschnitten hat (Autor und Jahr fehlten dann). Die **Vorschau** zeigt je Datei alt → neu; erst „Namen
+reparieren (Anzahl)“ führt sie aus.
 
 Achtung: Auch von Hand umbenannte Dateien in `Fertig` gelten als abweichend und werden in der Vorschau aufgelistet.
 Wenn du einen Namen behalten willst, brich ab und ändere stattdessen `titel`/`autor`/`jahr` im Kopfblock. Das
-Umbenennen lässt sich mit „Letzten Lauf rückgängig machen“ zurückdrehen.
+Umbenennen lässt sich mit „Letzten Lauf rückgängig machen“ zurücknehmen.
 
 ## Rückgängig machen
 
-Werkzeuge → **Letzten Lauf rückgängig machen …**: dreht den **letzten** Lauf zurück (Umwandlung, Übernahme aus Prüfen
+Werkzeuge → **Letzten Lauf rückgängig machen …**: macht den **letzten** Lauf rückgängig (Umwandlung, Übernahme aus Prüfen
 oder Umbenennen), mehrfach hintereinander möglich. Die Vorschau nennt jede Datei und ihren alten Ort. Die Originale gehen an ihren
 alten Ort mit dem alten Namen zurück. Die `.md` wird daneben abgelegt, es wird nichts gelöscht.
 

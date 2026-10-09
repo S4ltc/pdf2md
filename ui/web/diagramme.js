@@ -8,13 +8,15 @@
    - Gitterlinien 1 px und zurückhaltend, keine senkrechten Gitterlinien auf der Zeitachse; eine y-Achse.
    - Eine Reihe braucht keine Legende; ab zwei Reihen Legende mit kleinen Quadraten, Text in Textfarbe.
    - Hover zeigt je Element einen Tipp; jede Zahl gerundet und deutsch formatiert.
+   - Nichts nur per Maus: das Diagramm ist ein Tabstopp, Pfeiltasten zeigen die Werte einzeln (Tipp plus
+     Live-Region), und eine unsichtbare Liste enthält alle Werte für Screenreader (zugang()).
    Gezeichnet wird in echten Pixeln der Containerbreite (neu bei Größenänderung), damit Schrift nie skaliert. */
 (function () {
   "use strict";
   const NS = "http://www.w3.org/2000/svg";
   const zahl = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
   /* Beschriftung auf einer Fläche: dunkle Flächen hell beschriften, helle dunkel */
-  const TEXT_AUF = { "akzent": "auf-akzent", "grau-1": "auf-grau", "grau-2": "auf-grau", "gefahr": "auf-grau" };
+  const TEXT_AUF = { "akzent": "auf-akzent", "grau-1": "auf-grau", "grau-2": "auf-grau-2", "gefahr": "auf-grau" };
 
   function el(name, attribute, eltern) {
     const e = document.createElementNS(NS, name);
@@ -56,47 +58,116 @@
     return `M${x},${y}H${x + b - r}Q${x + b},${y} ${x + b},${y + r}V${y + h - r}Q${x + b},${y + h} ${x + b - r},${y + h}H${x}Z`;
   }
 
+  /* Leert das Diagramm und gibt die Breite zurück, gemessen vor dem Leeren (kein Layout-Lesen nach Schreiben).
+     Tabstopp und Beschriftung bleiben stehen, damit ein fokussiertes Diagramm beim Neuzeichnen den Fokus behält. */
   function leeren(ziel) {
+    const breite = ziel.clientWidth;
     ziel.textContent = "";
     ziel.onmousemove = ziel.onmouseleave = null;
+    ziel.diagrammTipp = null;
+    return breite;
+  }
+
+  function zugangEntfernen(ziel) {
+    for (const a of ["tabindex", "role", "aria-label"]) ziel.removeAttribute(a);
+    ziel.onkeydown = ziel.onblur = null;
   }
 
   function leer(ziel, hinweis) {
     leeren(ziel);
+    zugangEntfernen(ziel);
     const p = document.createElement("p");
     p.className = "leer";
     p.textContent = hinweis || "Noch keine Daten.";
     ziel.appendChild(p);
   }
 
-  function svgFuer(ziel, hoehe, beschreibung) {
-    const breite = Math.max(200, Math.floor(ziel.clientWidth || 300));
-    const svg = el("svg", { viewBox: `0 0 ${breite} ${hoehe}`, width: breite, height: hoehe, role: "img",
-      "aria-label": beschreibung });
+  /* Das SVG ist reine Darstellung (aria-hidden); Screenreader bekommen die Werte über zugang() */
+  function svgFuer(ziel, hoehe, gemessen) {
+    const breite = Math.max(200, Math.floor(gemessen || 300));
+    const svg = el("svg", { viewBox: `0 0 ${breite} ${hoehe}`, width: breite, height: hoehe, "aria-hidden": "true" });
     ziel.appendChild(svg);
     return { svg, breite };
   }
 
+  function tippZeigen(ziel, inhalt, x, y) {
+    let tipp = ziel.diagrammTipp;
+    if (!tipp) {
+      tipp = ziel.diagrammTipp = document.createElement("div");
+      tipp.className = "diagramm-tipp";
+      tipp.setAttribute("aria-hidden", "true");
+      ziel.appendChild(tipp);
+    }
+    tipp.textContent = inhalt;
+    tipp.hidden = false;
+    const breite = tipp.offsetWidth;
+    tipp.style.left = Math.max(0, Math.min(ziel.clientWidth - breite, x - breite / 2)) + "px";
+    tipp.style.top = Math.max(0, y - 34) + "px";
+  }
+  function tippVerbergen(ziel) {
+    if (ziel.diagrammTipp) ziel.diagrammTipp.hidden = true;
+  }
+
   /* Tipp beim Überfahren: jedes Element mit data-tipp */
   function tippAnbinden(ziel) {
-    let tipp = null;
     ziel.onmousemove = ereignis => {
       const quelle = ereignis.target.closest && ereignis.target.closest("[data-tipp]");
-      if (!quelle) { if (tipp) tipp.hidden = true; return; }
-      if (!tipp) {
-        tipp = document.createElement("div");
-        tipp.className = "diagramm-tipp";
-        ziel.appendChild(tipp);
-      }
-      tipp.textContent = quelle.getAttribute("data-tipp");
-      tipp.hidden = false;
+      if (!quelle || !quelle.getAttribute("data-tipp")) return tippVerbergen(ziel);
       const rahmen = ziel.getBoundingClientRect();
-      const x = ereignis.clientX - rahmen.left, y = ereignis.clientY - rahmen.top;
-      const breite = tipp.offsetWidth;
-      tipp.style.left = Math.max(0, Math.min(rahmen.width - breite, x - breite / 2)) + "px";
-      tipp.style.top = Math.max(0, y - 34) + "px";
+      tippZeigen(ziel, quelle.getAttribute("data-tipp"), ereignis.clientX - rahmen.left, ereignis.clientY - rahmen.top);
     };
-    ziel.onmouseleave = () => { if (tipp) tipp.hidden = true; };
+    ziel.onmouseleave = () => tippVerbergen(ziel);
+  }
+
+  /* Zugang ohne Maus: ein Tabstopp je Diagramm; Pfeiltasten (Pos1/Ende) wählen den Wert, der Tipp erscheint am
+     Element und eine Live-Region liest ihn vor. Dazu eine unsichtbare Liste aller Werte (Lesemodus). */
+  function zugang(ziel, beschreibung) {
+    const marken = Array.from(ziel.querySelectorAll("svg [data-tipp]")).filter(m => m.getAttribute("data-tipp"));
+    if (!marken.length) return;
+    ziel.tabIndex = 0;
+    ziel.setAttribute("role", "group");
+    ziel.setAttribute("aria-label", `${beschreibung}. Pfeiltasten zeigen die Werte einzeln.`);
+    const liste = document.createElement("ul");
+    liste.className = "nur-vorlesen";
+    for (const m of marken) {
+      const li = document.createElement("li");
+      li.textContent = m.getAttribute("data-tipp");
+      liste.appendChild(li);
+    }
+    const ansage = document.createElement("p");
+    ansage.className = "nur-vorlesen";
+    ansage.setAttribute("aria-live", "polite");
+    ziel.append(liste, ansage);
+    let i = -1;
+    const verlassen = () => {
+      if (marken[i]) marken[i].classList.remove("aktiv");
+      i = -1;
+      ziel.diagrammAuswahl = null;
+      tippVerbergen(ziel);
+    };
+    const waehle = n => {
+      if (marken[i]) marken[i].classList.remove("aktiv");
+      i = (n + marken.length) % marken.length;
+      ziel.diagrammAuswahl = i;
+      const m = marken[i];
+      m.classList.add("aktiv");
+      const r = m.getBoundingClientRect(), rahmen = ziel.getBoundingClientRect();
+      tippZeigen(ziel, m.getAttribute("data-tipp"), r.left + r.width / 2 - rahmen.left, r.top - rahmen.top);
+      ansage.textContent = m.getAttribute("data-tipp");
+    };
+    ziel.onkeydown = e => {
+      const schritt = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+      if (schritt) {
+        e.preventDefault();
+        waehle(i < 0 ? (schritt > 0 ? 0 : marken.length - 1) : i + schritt);
+      } else if (e.key === "Home") { e.preventDefault(); waehle(0); }
+      else if (e.key === "End") { e.preventDefault(); waehle(marken.length - 1); }
+      else if (e.key === "Escape") verlassen();
+    };
+    ziel.onblur = verlassen;
+    // neu gezeichnet, während das Diagramm den Fokus hat (neue Daten, andere Breite): gewählten Wert behalten
+    const vorher = ziel.diagrammAuswahl;
+    if (document.activeElement === ziel && vorher != null) waehle(Math.min(vorher, marken.length - 1));
   }
 
   function legende(ziel, reihen) {
@@ -116,9 +187,9 @@
   function saeulen(ziel, daten, o) {
     o = Object.assign({ hoehe: 160, beschreibung: "Säulendiagramm", reihen: null, einheit: "" }, o || {});
     if (!daten.length) return leer(ziel, o.leer);
-    leeren(ziel);
+    const gemessen = leeren(ziel);
     if (o.reihen && o.reihen.length > 1) legende(ziel, o.reihen);
-    const { svg, breite } = svgFuer(ziel, o.hoehe, o.beschreibung);
+    const { svg, breite } = svgFuer(ziel, o.hoehe, gemessen);
     const max = Math.max(...daten.map(d => d.wert || 0), 1);
     const ticks = teilung(max, 3);
     const oben = 8, unten = 20;
@@ -142,15 +213,16 @@
       if (i % jede === 0) text(svg, x + b / 2, o.hoehe - 4, d.label, { "text-anchor": "middle" });
     });
     tippAnbinden(ziel);
+    zugang(ziel, o.beschreibung);
   }
 
   /* Waagerechte Balken mit Beschriftung am Wert. daten: [{label, wert, tipp}] */
   function balken(ziel, daten, o) {
     o = Object.assign({ beschreibung: "Balkendiagramm", zeile: 28, farbe: "akzent" }, o || {});
     if (!daten.length) return leer(ziel, o.leer);
-    leeren(ziel);
+    const gemessen = leeren(ziel);
     const hoehe = daten.length * o.zeile + 4;
-    const { svg, breite } = svgFuer(ziel, hoehe, o.beschreibung);
+    const { svg, breite } = svgFuer(ziel, hoehe, gemessen);
     const max = Math.max(...daten.map(d => d.wert || 0), 1);
     const beschriftung = Math.min(breite * 0.45, Math.max(...daten.map(d => d.label.length)) * 6.4 + 12);
     const wertBreite = Math.max(...daten.map(d => zahl.format(d.wert).length)) * 7 + 12;
@@ -165,9 +237,10 @@
       const b = Math.max(1, (d.wert / max) * innen);
       el("path", { d: balkenpfad(beschriftung, yy, b, h, 4), class: "marke-" + (d.farbe || o.farbe),
         "data-tipp": d.tipp || `${d.label}: ${zahl.format(d.wert)}` }, svg);
-      text(svg, beschriftung + b + 6, yy + h / 2 + 4, zahl.format(d.wert), { class: "wert" });
+      text(svg, beschriftung + b + 6, yy + h / 2 + 4, zahl.format(d.wert), { class: "diagramm-wert" });
     });
     tippAnbinden(ziel);
+    zugang(ziel, o.beschreibung);
   }
 
   /* Gestapelte waagerechte Balken (Anteile). zeilen: [{label, werte: {Kategorie: n}}], kategorien: [{name, farbe}] */
@@ -175,11 +248,11 @@
     o = Object.assign({ beschreibung: "Gestapeltes Balkendiagramm", zeile: 30 }, o || {});
     const summe = z => Object.values(z.werte).reduce((a, b) => a + b, 0);
     if (!zeilen.length || !zeilen.some(summe)) return leer(ziel, o.leer);
-    leeren(ziel);
+    const gemessen = leeren(ziel);
     const benutzt = kategorien.filter(k => zeilen.some(z => z.werte[k.name]));
     legende(ziel, benutzt.map(k => ({ name: k.name, farbe: k.farbe })));
     const hoehe = zeilen.length * o.zeile + 4;
-    const { svg, breite } = svgFuer(ziel, hoehe, o.beschreibung);
+    const { svg, breite } = svgFuer(ziel, hoehe, gemessen);
     const beschriftung = Math.max(...zeilen.map(z => z.label.length)) * 6.6 + 12;
     const innen = breite - beschriftung - 4;
     zeilen.forEach((z, i) => {
@@ -198,14 +271,14 @@
       });
     });
     tippAnbinden(ziel);
+    zugang(ziel, o.beschreibung);
   }
 
   /* Streuung zweier Größen. punkte: [{x, y, tipp}] */
   function streuung(ziel, punkte, o) {
     o = Object.assign({ hoehe: 200, beschreibung: "Streudiagramm", xName: "", yName: "" }, o || {});
     if (!punkte.length) return leer(ziel, o.leer);
-    leeren(ziel);
-    const { svg, breite } = svgFuer(ziel, o.hoehe, o.beschreibung);
+    const { svg, breite } = svgFuer(ziel, o.hoehe, leeren(ziel));
     const xt = teilung(Math.max(...punkte.map(p => p.x), 1), 4);
     const yt = teilung(Math.max(...punkte.map(p => p.y), 1), 3);
     const oben = 8, unten = 34;
@@ -223,6 +296,7 @@
     yl.setAttribute("transform", `rotate(-90 10 ${oben + innenH / 2})`);
     for (const p of punkte) el("circle", { cx: X(p.x), cy: Y(p.y), r: 4, class: "punkt", "data-tipp": p.tipp || "" }, svg);
     tippAnbinden(ziel);
+    zugang(ziel, o.beschreibung);
   }
 
   /* Anteil gegen ein Ganzes: Zahl plus schmale Spur */
@@ -230,6 +304,7 @@
     o = Object.assign({ beschreibung: "Anteil" }, o || {});
     if (!ganzes) return leer(ziel, o.leer);
     leeren(ziel);
+    zugangEntfernen(ziel);                      // die Zahl steht sichtbar und in aria-label, kein Tabstopp nötig
     const anteil = Math.round((teil / ganzes) * 100);
     const div = document.createElement("div");
     div.className = "meter";

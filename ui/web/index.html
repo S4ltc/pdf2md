@@ -47,7 +47,7 @@
           <button type="button" class="knopf-text ordner-knopf" data-ordner="eingang" aria-label="Ordner Eingang im Explorer öffnen" title="Ordner Eingang im Explorer öffnen">Ordner</button>
         </header>
         <section id="lauf" class="lauf" aria-label="Aktuelle Umwandlung" hidden></section>
-        <h3 class="listen-titel" id="eingang-liste-titel" hidden>Warteschlange</h3>
+        <h3 class="listen-titel" id="eingang-liste-titel" hidden>Stand je Datei</h3>
         <ul class="liste" id="liste-eingang" aria-labelledby="titel-eingang"></ul>
         <p class="leer" id="leer-eingang" hidden>Keine Dateien. Mit „Hinzufügen“ oder per Ziehen ins Fenster nach Eingang kopieren.</p>
         <div class="ablegen" id="ablegen" hidden><p>Dateien loslassen: sie werden nach Eingang kopiert.</p></div>
@@ -176,8 +176,9 @@
 </dialog>
 
 <div id="tooltip" class="tooltip" aria-hidden="true" hidden></div>
+<p id="ansage" class="nur-vorlesen" role="status" aria-live="polite"></p>
 <div class="nur-vorlesen">
-  <span id="hilfe-rueckgaengig">Dreht den letzten Lauf zurück: Originale gehen mit altem Namen an ihren alten Ort, die .md daneben. Gelöscht wird nichts, die Vorschau zeigt jede Datei.</span>
+  <span id="hilfe-rueckgaengig">Macht den letzten Lauf rückgängig: Originale gehen mit altem Namen an ihren alten Ort, die .md daneben. Gelöscht wird nichts, die Vorschau zeigt jede Datei.</span>
   <span id="hilfe-namen">Benennt Original und .md in Fertig nach Titel, Autor und Jahr im Kopfblock um, etwa nach einer Korrektur im Kopfblock. Auch von Hand umbenannte Dateien werden zurückbenannt, deshalb erst die Vorschau prüfen.</span>
   <span id="hilfe-literatur">Schreibt alle Bücher und Normen aus Fertig als BibTeX-Datei (Literatur.bib) neben das Programm, zum Import in Citavi, Zotero oder LaTeX. Die Vorschau zeigt den Zitierschlüssel jeder Datei.</span>
   <span id="hilfe-text">Wandelt den Text der PDFs in Fertig mit dem aktuellen Verfahren neu um; Name und Kopfblock bleiben, die alte .md kommt nach Sicherung. Sinnvoll nach einem Update von pdf2md oder wenn Verfahren ein- oder ausgeschaltet wurden.</span>

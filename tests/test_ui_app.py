@@ -146,7 +146,15 @@ def test_hinzufuegen_kopiert_nach_eingang(api, basis, tmp_path_factory):
     antwort = api.hinzufuegen([str(quelle / "neu.pdf"), str(quelle / "notiz.txt")])
     assert antwort == {"kopiert": ["neu.pdf"], "abgelehnt": [["notiz.txt", "Format nicht unterstützt"]]}
     assert [e["name"] for e in api.stand()["eingang"]] == ["neu.pdf"]
-    assert "Dateidialog" in api.hinzufuegen_dialog()["hinweis"]               # ohne Fenster kein Dialog
+    assert api.hinzufuegen_dialog()["hinweis"] == "Den Dateidialog gibt es nur im Programmfenster."
+    meldungen = [e["text"] for e in api.ereignisse(0)["ereignisse"] if e["art"] == "meldung"]
+    assert meldungen[-1].startswith("1 Datei nach Eingang kopiert; abgelehnt: notiz.txt")   # Mehrzahl, kein "(en)"
+
+
+def test_mehrzahl_in_meldungen():
+    assert pdf2md.anzahl(1, "Datei", "Dateien") == "1 Datei"
+    assert pdf2md.anzahl(0, "Datei", "Dateien") == "0 Dateien"
+    assert pdf2md.anzahl(3, "Datei", "Dateien") == "3 Dateien"
 
 
 def test_auswertung_hat_alle_abschnitte(api, basis):

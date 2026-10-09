@@ -147,7 +147,7 @@ class Api:
     # ------------------------------------------------------------ Dateien
     def hinzufuegen_dialog(self) -> dict:
         if self._fenster is None:
-            return {"kopiert": [], "abgelehnt": [], "hinweis": "Der Dateidialog gibt es nur im Programmfenster."}
+            return {"kopiert": [], "abgelehnt": [], "hinweis": "Den Dateidialog gibt es nur im Programmfenster."}
         import webview
         pfade = self._fenster.create_file_dialog(webview.FileDialog.OPEN, allow_multiple=True, file_types=DATEITYPEN)
         return self.hinzufuegen(list(pfade or []))
@@ -155,7 +155,8 @@ class Api:
     def hinzufuegen(self, pfade: list) -> dict:
         ergebnis = ablage.kopieren([p for p in pfade if p], pdf2md.EINGANG)
         if ergebnis["kopiert"] or ergebnis["abgelehnt"]:
-            self._ereignis("meldung", text=f"{len(ergebnis['kopiert'])} Datei(en) nach Eingang kopiert"
+            kopiert = pdf2md.anzahl(len(ergebnis["kopiert"]), "Datei", "Dateien")
+            self._ereignis("meldung", text=f"{kopiert} nach Eingang kopiert"
                            + "".join(f"; abgelehnt: {n} ({g})" for n, g in ergebnis["abgelehnt"]))
         return {"kopiert": ergebnis["kopiert"], "abgelehnt": [list(a) for a in ergebnis["abgelehnt"]]}
 
@@ -262,7 +263,7 @@ class Api:
     @staticmethod
     def _literatur(plan: list[dict]) -> dict:
         ziel = pdf2md.literatur_schreiben(plan)
-        pdf2md.melden(f"{len(plan)} Einträge nach {ziel} geschrieben")
+        pdf2md.melden(f"{pdf2md.anzahl(len(plan), 'Eintrag', 'Einträge')} nach {ziel} geschrieben")
         return {"eintraege": len(plan), "datei": str(ziel)}
 
     # ------------------------------------------------------------ Einstellungen
