@@ -11,7 +11,9 @@ Sicherung/
 Einstellungen.json
 Einstellungen.json.tmp
 CLAUDE.local.md
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/hooks/
 paket/
 *.zip
 SHA256SUMS.txt

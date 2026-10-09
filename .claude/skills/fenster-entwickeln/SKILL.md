@@ -1,0 +1,30 @@
+---
+name: fenster-entwickeln
+description: "Oberfläche und Api ändern: ui_app.py, ui/web/, einstellungen.py, auswertung.py, ablage.py, plattform.py, aktualisierung.py. Mit Ablage-Kopie statt dist, Vorschau-Server, Screenshots hell/dunkel und den bekannten Fallen (Threads, Einstellungen in Unterprozessen, schnelle Regler)."
+---
+
+# Fenster entwickeln
+
+## Ablauf
+
+1. **Ablage-Kopie** im Scratchpad anlegen: Ordner und `Protokoll.csv` aus `dist` kopieren (lesen ist erlaubt) und in der Kopie die Pfade in `Protokoll.csv` auf die Kopie umschreiben, sonst verschiebt „Rückgängig“ in `dist`. Originale dürfen Platzhalter sein.
+2. **Starten** gegen die Kopie: Fenster mit `PDF2MD_ABLAGE=<kopie> python ui_app.py`, im Browser mit `python werkzeuge/ui_vorschau.py <kopie> 8765`. Die lokale `.claude/launch.json` hat dafür den Eintrag `ui-vorschau`; ihren Pfad auf die aktuelle Kopie setzen. Mit `dist` als Ablage sperrt der Schutz-Hook beide Aufrufe.
+3. **Änderung mit Test**: Api in `tests/test_ui_app.py` (ohne Fenster, `extern_oeffnen`/`link_oeffnen` ersetzt), Kennzahlen in `tests/test_auswertung.py`, Listen in `tests/test_ablage.py`, Einstellungen in `tests/test_einstellungen.py`, Systemzweige in `tests/test_plattform.py`.
+4. **Sichtprüfung** über den Vorschau-Server mit `?thema=hell|dunkel&seite=uebersicht|auswertung|einstellungen&experte=offen`: hell und dunkel, schmal, mittel und breit, dazu Tastaturbedienung. Screenshots per Edge headless oder im eingebauten Browser. Die Gestaltungsregeln stehen in CLAUDE.md (Verbindliche Regeln).
+5. **Neue Einstellung**: in `einstellungen.EINSTELLUNGEN` eintragen, dann `python werkzeuge/einstellungen_liste.py` (schreibt `docs/einstellungen.md` neu).
+
+Fertig, wenn die Tests grün sind, die Screenshots hell und dunkel ohne Überlauf aussehen und `dist` unverändert ist.
+
+## Hintergrund (aus CLAUDE.md)
+
+- Aufbau: `ui_app.Api` ist die einzige Schnittstelle der Oberfläche (öffentliche Methoden; im Fenster über `window.pywebview.api`, im Entwicklungsserver `werkzeuge/ui_vorschau.py` per `POST /api/<methode>`, erkennbar am meta-Tag `pdf2md-modus`). Die Oberfläche fragt `signatur()` (alle 1,5 s, im Lauf 0,4 s) und `ereignisse(nach)` ab; Python schiebt nichts per `evaluate_js` (Ausnahme: Rückfrage beim Schließen).
+- Lauf: ein Thread zur Zeit (`Api._starten`), `pdf2md.eingang_verarbeiten()` bzw. die Werkzeuge mit `abbrechen`/`datei_beginnt`/`datei_fertig`; Meldungen und Fortschritt kommen über `pdf2md.rueckmeldung(melder, fortschritt)` statt `print` (`melden()`, `fortschritt_melden()`; ohne Fenster bleibt `print`). Abbrechen greift vor der nächsten Datei. Fortschritt gedrosselt (0,2 s). Einstellungen sind während eines Laufs gesperrt.
+- Falle: pywebview ruft jede Api-Methode in einem eigenen Thread auf -> gemeinsamer Zustand nur unter `self._sperre`, Laufzustand als tiefe Kopie herausgeben. Api-Attribute privat halten (Unterstrich), sonst versucht pywebview, sie für JavaScript freizugeben.
+- Falle: Einstellungen in Unterprozessen. `ProcessPoolExecutor` startet frische Prozesse mit Standardwerten; `_markitdown_umwandeln` übergibt deshalb `initializer=einstellungen.anwenden`. Abgeleitete Werte (`tabellen.MIN_UEBERSTAND = 3*TOLERANZ`, `zitierdaten.TIMEOUT = ONLINE_TIMEOUT`) stehen in `einstellungen.ABGELEITET`; geänderte `formeln.GLYPH_GROESSE`/`RASTER` setzen `formeln._REFERENZ` zurück. Neue Konstanten in `einstellungen.EINSTELLUNGEN` eintragen; ein Test prüft Standard = Code und dass keine Einstellung beim Import kopiert wird (Default-Argumente, `from x import`).
+- Falle: Einstellungen schnell hintereinander (Pfeiltasten am Regler) dürfen sich nicht überholen: `setzenPlanen()` sammelt 250 ms und speichert strikt nacheinander, die Zeile wird an Ort und Stelle aktualisiert (vorher: Anzeige 2,5, gespeichert 3,0).
+- Schließen während eines Laufs: `closing`-Handler liefert False, Rückfrage im Fenster, dann `schliessen_anfragen()` (Abbruch nach der aktuellen Datei, danach `destroy`). Einzelinstanz je Ordner per benanntem Mutex. Ziehen ins Fenster: DOM-Handler auf `document` mit `pywebviewFullPath`, im Browser-Entwicklungsserver nicht möglich.
+- Dateien und Ordner öffnen (Nutzerwunsch, Standardprogramm von Windows über `ui_app.extern_oeffnen`): `Api.datei_oeffnen(bereich, name, art)` nimmt nur einen Dateinamen aus Eingang/Prüfen/Fertig (kein Pfad aus der Oberfläche, `..` und andere Ordner abgelehnt), `art="original"` öffnet das Original zur `.md`; `Api.ordner_oeffnen(bereich)`. Tests ersetzen `extern_oeffnen`, damit beim Testen nichts aufgeht.
+- Hinzufügen kopiert nach `Eingang` (`ablage.kopieren`, keine Protokollzeile, Rückgängig löscht keine Kopien). Fertig zeigt je Buch eine Zeile. Prüfen: „bereit zur Übernahme“ nach `pdf2md.uebernahme_pruefen()` (dieselbe Regel wie `nachbessern`).
+- Text-Qualität (`auswertung.textqualitaet`): je Punkt Wert / höchstmögliche Anzahl (unlesbare Zeichen = repariert + verbliebene `�`, Formelzeilen mit `$…$`, Tabellentitel im Text, Überschriften aus Lesezeichen, Seiten, Seiten mit Marker, Bücher), gezählt nur über Bücher, deren `textquelle` das Verfahren nennt; sonst stünden ältere `.md` mit 0 im Zähler und vollem Nenner da.
+- Auswertung: Dauer aus den `zeit`-Abständen je Lauf (erste Datei: Abstand zu `lauf` = Startzeit), Seiten aus dem Kopfblock (Name oder `originaldatei`), über 6 h = unbekannt; `Protokoll.csv` bleibt im alten Format. Kennzahlen je `.md` zwischengespeichert nach (mtime, Größe). Gedruckte Seitenzahlen nur aus neuen Markern; ältere `.md` (ohne neue Felder) zählen als „nicht erfasst“, die Oberfläche sagt das dazu.
+- Version und Updates (`aktualisierung.py`): `VERSION` steht im Kopf des Fensters. `Api.update_pruefen_starten()` fragt einmal je Start (nur aus `main()`, nie in Tests) `releases/latest` bei GitHub ab (User-Agent `pdf2md/1.0`, abschaltbar `aktualisierung.SUCHEN`, Standard an); eine neuere Version erhoeht `_warm` (Signatur), das Fenster zeigt „Version … verfügbar“. `update_oeffnen()` oeffnet nur die feste Release-Seite (`link_oeffnen`, in Tests ersetzt). Ersetzt oder geladen wird nichts.

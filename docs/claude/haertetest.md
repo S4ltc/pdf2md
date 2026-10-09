@@ -1,0 +1,9 @@
+# Härtetest (`werkzeuge/haertetest.py`)
+
+Aus CLAUDE.md ausgelagert. Vor einer Änderung an diesem Teil lesen; neue Messungen und Fallen hier eintragen (Zahlen mit Anzahl Bücher/Normen, Beispiele neutral, echte Titel nur in `CLAUDE.local.md`).
+
+## Härtetest (`werkzeuge/haertetest.py`, `tests/test_haertetest.py`)
+
+- Gefunden und behoben (je mit Regressionstest): `UNBRAUCHBARE_TITEL` war nicht verankert und verwarf echte Titel („Sehr langes Dokument“, „Layout von Leiterplatten“); Titel nur aus Sonderzeichen ergab den Namen „ - Autor - Jahr“ (`titel_brauchbar`); Autoren „python-docx“/„openpyxl“/„Microsoft Office User“; HTML ohne Zeichensatz wurde von MarkItDown falsch geraten (`html_dekodieren`, danach `convert_stream` mit UTF-8); XLSX „NaN“ in leeren Zellen; Office/EPUB/HTML mit wenig Text galten als Scan (`MIN_TEXT_DOKUMENT`); Fehlermeldungen der Bibliotheken unverständlich (`fehlertext`); gesperrtes Original hinterließ eine verwaiste `.md` und beim nächsten Lauf ein Duplikat „(2)“ (`.md` wird bei Fehlschlag gelöscht, Nachbessern/Rückgängig je Datei abgesichert); Rückgängig mit leerem `md_pfad` hätte `Path("")` = aktuellen Ordner verschoben; Kapitel-DOIs bei Netzausfall bis 400 × TIMEOUT (`KAPITEL_STAPEL`); tiefe Ordner > 260 Zeichen (`name_laenge`).
+- Fenster bei vielen Büchern: Kennzahlen im Thread hielten den Interpreter (GIL) so lange, dass jede Abfrage Sekunden wartete (640 Bücher: 24 s leer). Jetzt liefert `stand()` die Listen sofort, Kennzahlen rechnet `_vorwaermen()` (ab `PARALLEL_AB_BUECHERN` in Unterprozessen über `ablage.kennzahlen_lesen`, auch in der .exe geprüft), die Signatur ändert sich danach. Ein Skript per stdin kann keine Unterprozesse starten (multiprocessing braucht eine Datei); `_vorwaermen` fällt dann auf den Thread zurück.
+- Gemessen: 2000 PDF-Seiten 11 s, 60.000 XLSX-Zeilen 18–23 s (MarkItDown/pandas), 30.000 HTML-Absätze 2 s; 165 Einstellungsvarianten an zwei echten PDFs ohne Ausnahme.
