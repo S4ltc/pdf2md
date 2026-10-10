@@ -31,7 +31,7 @@ WERKZEUGE = {
     "text": "Text erneuern",
     "literatur": "Literaturliste exportieren",
 }
-DATEITYPEN = ("Unterstützte Dateien (*.pdf;*.docx;*.pptx;*.xlsx;*.epub;*.html;*.htm)", "Alle Dateien (*.*)")
+ENDUNGEN = ("pdf", "docx", "pptx", "xlsx", "epub", "html", "htm")   # Filter des Hinzufuegen-Dialogs (_dateitypen)
 BEREICHE = ("eingang", "pruefen", "fertig")
 MAX_EREIGNISSE = 3000
 PARALLEL_AB_BUECHERN = 40     # so viele fehlende Kennzahlen rechnen Unterprozesse statt eines Threads
@@ -120,7 +120,8 @@ class Api:
         return {"eingang": eingang, "pruefen": pruefen, "fertig": fertig, "kennzahlen": kennzahlen,
                 "mini": {"laeufe": laeufe[-24:], "herkunft": herkunft},
                 "lauf": self._laufzustand(), "signatur": signatur, "ordner": str(self._basis),
-                "version": {"aktuell": aktualisierung.VERSION, "neu": self._update}}
+                "version": {"aktuell": aktualisierung.VERSION, "neu": self._update},
+                "system": plattform.SYSTEM}          # Tastenkuerzel (Mac: Cmd) und Namen des Dateimanagers
 
     # ------------------------------------------------------------ Version
     def update_pruefen_starten(self) -> None:
@@ -145,11 +146,21 @@ class Api:
             return {"ereignisse": neu, "lauf": self._laufzustand(), "letzte": self._nr}
 
     # ------------------------------------------------------------ Dateien
+    @staticmethod
+    def _dateitypen() -> tuple[str, str]:
+        """Filter des Hinzufuegen-Dialogs im Format von pywebview ("Beschreibung (*.a;*.b)"). Windows zeigt die Muster
+        in der Beschriftung und unterscheidet nicht nach Gross- und Kleinschreibung: dort nur klein wie bisher. Der
+        Dialog von Qt bzw. GTK unter Linux unterscheidet sie ("BERICHT.PDF" fehlte unter den unterstuetzten Dateien),
+        deshalb ausserhalb von Windows jede Endung auch gross; macOS zeigt nur die Beschreibung."""
+        endungen = list(ENDUNGEN) + ([] if plattform.windows() else [e.upper() for e in ENDUNGEN])
+        return f"Unterstützte Dateien ({';'.join('*.' + e for e in endungen)})", "Alle Dateien (*.*)"
+
     def hinzufuegen_dialog(self) -> dict:
         if self._fenster is None:
             return {"kopiert": [], "abgelehnt": [], "hinweis": "Den Dateidialog gibt es nur im Programmfenster."}
         import webview
-        pfade = self._fenster.create_file_dialog(webview.FileDialog.OPEN, allow_multiple=True, file_types=DATEITYPEN)
+        pfade = self._fenster.create_file_dialog(webview.FileDialog.OPEN, allow_multiple=True,
+                                                 file_types=self._dateitypen())
         return self.hinzufuegen(list(pfade or []))
 
     def hinzufuegen(self, pfade: list) -> dict:
@@ -226,8 +237,9 @@ class Api:
         elif name == "literatur":
             plan = pdf2md.literatur_plan()
             eintraege = [{"alt": e["name"], "neu": e["schluessel"]} for e in plan]
-            hinweis = (f"Schreibt {pdf2md.LITERATURLISTE} neben das Programm (eine vorhandene Datei wird ersetzt), "
-                       "zum Import in Citavi, Zotero oder LaTeX. Rechts steht der Schlüssel zum Zitieren." if plan
+            hinweis = (f"Schreibt {pdf2md.LITERATURLISTE} neben die Ordner Eingang und Fertig (eine vorhandene Datei "
+                       "wird ersetzt), zum Import in Citavi, Zotero oder LaTeX. Rechts steht der Schlüssel zum "
+                       "Zitieren." if plan
                        else "In Fertig gibt es noch keine Datei mit Titel im Kopfblock.")
         else:
             plan = pdf2md.text_plan()

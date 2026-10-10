@@ -116,6 +116,63 @@
     try { localStorage.setItem("pdf2md." + schluessel, wert); } catch (e) { /* ohne Speicher geht es auch */ }
   }
 
+  /* ------------------------------------------------------------ Betriebssystem */
+  /* Tastenkürzel und Texte je System: auf dem Mac Cmd statt Strg („⌘O“ statt „Strg+O“), der Dateimanager heißt
+     Explorer, Finder oder Dateimanager. index.html enthält die Windows-Fassung. Das System liefert Python
+     (stand().system = plattform.SYSTEM, im Vorschau-Server das des Rechners); bis dahin gilt die Angabe des
+     Browsers. ?system=win32|darwin|linux nur für Tests und Screenshots. */
+  const SYSTEME = {
+    win32: { taste: "Control", strg: "Strg+", enter: "Enter", dateimanager: "im Explorer" },
+    darwin: { taste: "Meta", strg: "⌘", enter: "↩", dateimanager: "im Finder" },
+    linux: { taste: "Control", strg: "Strg+", enter: "Enter", dateimanager: "im Dateimanager" },
+  };
+  const ORDNER_NAMEN = { eingang: "Eingang", pruefen: "Prüfen", fertig: "Fertig" };
+  const SYSTEM_FEST = new URLSearchParams(location.search).get("system");
+  let system = systemName(SYSTEM_FEST || browserSystem());
+  let systemAngewandt = null;                   // für dieses System stehen die Texte schon im Dokument
+
+  function systemName(s) {                      // alles außer Windows und macOS wie Linux (Strg, Dateimanager)
+    return s === "win32" || s === "darwin" ? s : "linux";
+  }
+  function browserSystem() {
+    const p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    return /mac/i.test(p) ? "darwin" : /win/i.test(p) ? "win32" : "linux";
+  }
+  /* Anzeige eines Kürzels: kuerzel("O") = „Strg+O“ bzw. „⌘O“; kuerzelAria("O") für aria-keyshortcuts */
+  function kuerzel(taste) {
+    const s = SYSTEME[system];
+    return s.strg + (taste === "Enter" ? s.enter : taste);
+  }
+  function kuerzelAria(taste) {
+    return `${SYSTEME[system].taste}+${taste}`;
+  }
+  /* Nur die Kürzeltaste des Systems: auf dem Mac Cmd ohne Ctrl (Ctrl+Cmd gehört dort dem System), sonst Strg */
+  function kuerzelTaste(e) {
+    return system === "darwin" ? e.metaKey && !e.ctrlKey : e.ctrlKey;
+  }
+  function systemSetzen(neu) {
+    system = systemName(SYSTEM_FEST || neu);
+    if (system === systemAngewandt) return;
+    systemAngewandt = system;
+    systemTexte();
+  }
+  function systemTexte() {
+    const hinzufuegen = $("#hinzufuegen");
+    hinzufuegen.title = `Dateien nach Eingang kopieren (${kuerzel("O")})`;
+    hinzufuegen.setAttribute("aria-keyshortcuts", kuerzelAria("O"));
+    $("#starten").setAttribute("aria-keyshortcuts", kuerzelAria("Enter"));
+    if (!zustand.lauf) $("#starten").title = startenTitel();
+    document.querySelectorAll(".nav").forEach((b, i) => b.setAttribute("aria-keyshortcuts", kuerzelAria(String(i + 1))));
+    for (const b of document.querySelectorAll("[data-ordner]")) {
+      const text = `Ordner ${ORDNER_NAMEN[b.dataset.ordner]} ${SYSTEME[system].dateimanager} öffnen`;
+      b.title = text;
+      b.setAttribute("aria-label", text);
+    }
+  }
+  function startenTitel() {
+    return `Eingang verarbeiten, fertige Prüfen-Dateien übernehmen (${kuerzel("Enter")})`;
+  }
+
   /* ------------------------------------------------------------ Navigation */
   function zeigeSeite(name) {
     zustand.seite = name;
@@ -134,6 +191,7 @@
     zustand.stand = await rufe("stand");
     zustand.signatur = zustand.stand.signatur;
     zustand.lauf = zustand.stand.lauf;
+    systemSetzen(zustand.stand.system);
     zeigeUebersicht();
     zeigeLauf();
     zeigeVersion();
@@ -262,7 +320,7 @@
     $("#leer-pruefen").hidden = s.pruefen.length > 0;
   }
 
-  /* Dateien öffnen (Standardprogramm von Windows): Name = .md bzw. Datei im Eingang, Formatkürzel = Original */
+  /* Dateien öffnen (Standardprogramm des Systems): Name = .md bzw. Datei im Eingang, Formatkürzel = Original */
   async function oeffnen(bereich, name, art) {
     const antwort = await rufe("datei_oeffnen", bereich, name, art);
     melde(antwort.ok ? `${antwort.datei} geöffnet` : antwort.grund);
@@ -388,7 +446,7 @@
       knopf.textContent = "Starten";
       knopf.className = "knopf haupt";
       knopf.disabled = false;
-      knopf.title = "Eingang verarbeiten, fertige Prüfen-Dateien übernehmen (Strg+Enter)";
+      knopf.title = startenTitel();
       sperreEinstellungen(false);
       return;
     }
@@ -967,7 +1025,7 @@
   function tastaturEinrichten() {
     document.addEventListener("keydown", e => {
       if (document.querySelector("dialog[open]")) return;
-      if (e.ctrlKey && !e.altKey && !e.shiftKey) {
+      if (kuerzelTaste(e) && !e.altKey && !e.shiftKey) {
         if (e.key === "o" || e.key === "O") { e.preventDefault(); hinzufuegen(); }
         else if (e.key === "Enter") { e.preventDefault(); startenOderAbbrechen(); }
         else if (["1", "2", "3"].includes(e.key)) {
@@ -1004,9 +1062,10 @@
   function einrichten() {
     // Fehler einer Python-Abfrage, die keine Stelle selbst behandelt, landen sichtbar in der Statuszeile
     window.addEventListener("unhandledrejection", e => melde(fehlerText(e.reason)));
-    // ?thema=hell|dunkel und ?seite=... nur fuer Tests und Screenshots (werkzeuge/ui_vorschau.py)
+    // ?thema=hell|dunkel, ?seite=... und ?system=... nur fuer Tests und Screenshots (werkzeuge/ui_vorschau.py)
     const thema = new URLSearchParams(location.search).get("thema");
     if (thema === "hell" || thema === "dunkel") document.documentElement.dataset.theme = thema === "hell" ? "light" : "dark";
+    systemSetzen(system);                       // Vermutung des Browsers, bis stand() das System nennt
     for (const b of document.querySelectorAll(".nav")) b.addEventListener("click", () => zeigeSeite(b.dataset.seite));
     $("#starten").addEventListener("click", startenOderAbbrechen);
     $("#hinzufuegen").addEventListener("click", hinzufuegen);
