@@ -150,8 +150,9 @@ class Api:
     def _dateitypen() -> tuple[str, str]:
         """Filter des Hinzufuegen-Dialogs im Format von pywebview ("Beschreibung (*.a;*.b)"). Windows zeigt die Muster
         in der Beschriftung und unterscheidet nicht nach Gross- und Kleinschreibung: dort nur klein wie bisher. Der
-        Dialog von Qt bzw. GTK unter Linux unterscheidet sie ("BERICHT.PDF" fehlte unter den unterstuetzten Dateien),
-        deshalb ausserhalb von Windows jede Endung auch gross; macOS zeigt nur die Beschreibung."""
+        Dialog unter Linux unterscheidet sie vermutlich (GTK sicher, Qt je nach Dialog; auf einem Linux-Rechner noch
+        nicht geprueft), deshalb ausserhalb von Windows jede Endung auch gross; macOS zeigt nur die Beschreibung.
+        Gemischte Schreibung ("Bericht.Pdf") laesst pywebviews Format nicht zu, dafuer gibt es "Alle Dateien"."""
         endungen = list(ENDUNGEN) + ([] if plattform.windows() else [e.upper() for e in ENDUNGEN])
         return f"Unterstützte Dateien ({';'.join('*.' + e for e in endungen)})", "Alle Dateien (*.*)"
 
@@ -237,7 +238,7 @@ class Api:
         elif name == "literatur":
             plan = pdf2md.literatur_plan()
             eintraege = [{"alt": e["name"], "neu": e["schluessel"]} for e in plan]
-            hinweis = (f"Schreibt {pdf2md.LITERATURLISTE} neben die Ordner Eingang und Fertig (eine vorhandene Datei "
+            hinweis = (f"Schreibt {pdf2md.LITERATURLISTE} neben den Ordner Fertig (eine vorhandene Datei "
                        "wird ersetzt), zum Import in Citavi, Zotero oder LaTeX. Rechts steht der Schlüssel zum "
                        "Zitieren." if plan
                        else "In Fertig gibt es noch keine Datei mit Titel im Kopfblock.")

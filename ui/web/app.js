@@ -151,7 +151,7 @@
     return system === "darwin" ? e.metaKey && !e.ctrlKey : e.ctrlKey;
   }
   function systemSetzen(neu) {
-    system = systemName(SYSTEM_FEST || neu);
+    system = systemName(SYSTEM_FEST || neu || browserSystem());
     if (system === systemAngewandt) return;
     systemAngewandt = system;
     systemTexte();

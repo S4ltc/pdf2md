@@ -78,18 +78,18 @@ def test_hinzufuegen_dialog_bekommt_den_filter_des_systems(api, monkeypatch):
 
 def test_hinweis_literaturliste_stimmt_auf_jedem_system(api, tmp_path):
     """Frueher "neben das Programm"; als App unter macOS/Linux liegt die Ablage aber in Dokumente/pdf2md. Die Datei
-    liegt immer neben den Ordnern Eingang und Fertig."""
+    liegt neben dem Ordner Fertig (auch nach einer freien Ordnerwahl, siehe docs/claude/offene-aufgaben.md)."""
     fertig = tmp_path / "Fertig"
     fertig.mkdir()
     kopf = {"titel": "Beispielelemente", "autor": "Erika Muster", "jahr": "2020"}
     (fertig / "Beispielelemente - Erika Muster - 2020.md").write_text(pdf2md.kopf_schreiben(kopf) + "Text",
                                                                       encoding="utf-8")
     hinweis = api.werkzeug_vorschau("literatur")["hinweis"]
-    assert "neben die Ordner Eingang und Fertig" in hinweis and "Programm" not in hinweis
+    assert "neben den Ordner Fertig" in hinweis and "Programm" not in hinweis
     ziel = pdf2md.literatur_schreiben(pdf2md.literatur_plan())
-    assert ziel.parent == pdf2md.EINGANG.parent == pdf2md.FERTIG.parent
+    assert ziel.parent == pdf2md.FERTIG.parent
     hilfe = (WEB / "index.html").read_text(encoding="utf-8")
-    assert "neben das Programm" not in hilfe and "neben die Ordner Eingang und Fertig" in hilfe
+    assert "neben das Programm" not in hilfe and "neben den Ordner Fertig" in hilfe
 
 
 def _variable(css: str, name: str) -> list[str]:
