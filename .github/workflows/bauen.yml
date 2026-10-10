@@ -79,3 +79,126 @@ jobs:
         if: always()
         shell: bash
         run: python werkzeuge/bauen.py hinweise "${{ matrix.name }}"
+
+  # Start-Test des Linux-Pakets auf anderen Distributionen als dem Build-System (Ubuntu 22.04), je in einem Container.
+  # Zuerst nur ein Desktop-Grundstock: was GTK-3-Programme und ein Browser mitbringen (GTK 3 samt X11-Bibliotheken,
+  # Mesa EGL/GL, fontconfig mit Schrift, NSS, ALSA, D-Bus, XTest) und der virtuelle Bildschirm. Was dem Paket darauf
+  # fehlt (ldd, nur "not found"), muesste ein Nutzer nachinstallieren. Dann kommen die Qt-Pakete dazu, die der
+  # Build-Job oben auch installiert (xcb-util, xkbcommon-x11, libOpenGL), und der Start-Test laeuft. Hinweise:
+  # "Start-Test linux <distro>" und "Fehlende Bibliotheken linux <distro>". bauen.py laeuft mit dem python3 des
+  # Containers (nur Standardbibliothek, ab 3.11 wie in Debian 12) und als root (Chromium-Sandbox ist ohnehin aus).
+  # Nur zur Information: continue-on-error, ein Fehlschlag haelt weder diesen Lauf noch das Release auf (release.yml
+  # wartet aber, bis die Container fertig sind).
+  distributionen:
+    name: Start-Test linux ${{ matrix.distro }}
+    needs: bauen
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu-24.04
+            image: ubuntu:24.04
+            grundstock: >-
+              apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+              python3 xvfb xauth util-linux xz-utils libgtk-3-0t64 libegl1 libgl1 libegl-mesa0 libglx-mesa0
+              libgl1-mesa-dri fontconfig fonts-dejavu-core libnss3 libasound2t64 libdbus-1-3 libxtst6
+            qt: >-
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libopengl0
+              libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
+              libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbfile1
+          - distro: debian-12
+            image: debian:12
+            grundstock: >-
+              apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
+              python3 xvfb xauth util-linux xz-utils libgtk-3-0 libegl1 libgl1 libegl-mesa0 libglx-mesa0
+              libgl1-mesa-dri fontconfig fonts-dejavu-core libnss3 libasound2 libdbus-1-3 libxtst6
+            qt: >-
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libopengl0
+              libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
+              libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbfile1
+          - distro: fedora-41
+            image: fedora:41
+            grundstock: >-
+              dnf install -y --setopt=install_weak_deps=False
+              python3 xorg-x11-server-Xvfb xorg-x11-xauth util-linux tar xz gtk3 mesa-libEGL mesa-libGL
+              mesa-dri-drivers fontconfig dejavu-sans-fonts nss alsa-lib dbus-libs libXtst
+            qt: >-
+              dnf install -y --setopt=install_weak_deps=False libglvnd-opengl libxkbcommon-x11 xcb-util-cursor
+              xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libxkbfile
+    container:
+      image: ${{ matrix.image }}
+      options: --shm-size=1g          # Chromium legt geteilten Speicher in /dev/shm an (Docker: sonst 64 MB)
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Desktop-Grundstock und virtueller Bildschirm
+        continue-on-error: true       # fehlt ein Paket, zeigen ldd und der Start-Test, was dann fehlt
+        run: ${{ matrix.grundstock }}
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: paket-linux-x86_64
+          path: paket
+
+      - name: Entpacken wie ein Nutzer (tar -xf)
+        run: |
+          mkdir -p entpackt
+          tar -xf paket/pdf2md-*-linux-x86_64.tar.xz -C entpackt
+          shopt -s nullglob
+          oben=(entpackt/*)
+          if [ ${#oben[@]} -eq 1 ] && [ -e "${oben[0]}/pdf2md/pdf2md" ]; then
+            echo "ORDNER=${oben[0]}" >> "$GITHUB_ENV"
+          else
+            echo "::warning title=Archiv linux ${{ matrix.distro }}::kein gemeinsamer Oberordner: ${oben[*]}"
+            echo "ORDNER=entpackt" >> "$GITHUB_ENV"
+          fi
+          # ldd-Pruefung fuer beide Stufen: Starter, Qt-Plattform-Plugin xcb und Qt WebEngine (braucht NSS, ALSA
+          # usw. vom System); LD_LIBRARY_PATH ungefaehr wie zur Laufzeit (PyInstaller-Starter: _internal, Qt: Qt/lib)
+          cat > fehlend.sh <<'ENDE'
+          command -v ldd > /dev/null || { echo "ldd fehlt im Container"; exit 0; }
+          intern="$ORDNER/pdf2md/_internal"
+          export LD_LIBRARY_PATH="$intern:$intern/PySide6/Qt/lib"
+          shopt -s nullglob globstar
+          for datei in "$ORDNER/pdf2md/pdf2md" "$intern"/**/platforms/libqxcb.so "$intern"/**/libQt6WebEngineCore.so.*; do
+            [ -L "$datei" ] && continue
+            ldd "$datei" 2>&1 | grep "not found" | sed "s|^[[:space:]]*|${datei##*/}: |" || true
+          done | sort -u
+          ENDE
+
+      - name: Fehlende Bibliotheken im Desktop-Grundstock (ldd)
+        run: bash fehlend.sh | tee fehlend-grundstock.txt
+
+      - name: Qt-Pakete dazu (wie im Build-Job)
+        continue-on-error: true
+        run: ${{ matrix.qt }}
+
+      - name: Start-Test
+        continue-on-error: true       # das Ergebnis steht im Hinweis, nicht im Status des Laufs
+        run: |
+          bash fehlend.sh | tee fehlend-mit-qt.txt
+          # xvfb-run braucht xauth, mcookie und getopt; fehlt es, laeuft der virtuelle Bildschirm direkt
+          if ! command -v xvfb-run > /dev/null && command -v Xvfb > /dev/null; then
+            Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp &
+            export DISPLAY=:99
+            sleep 3
+          fi
+          python3 werkzeuge/bauen.py starttest "$ORDNER"
+
+      - name: Ergebnisse als Hinweis
+        if: always()
+        run: |
+          python3 werkzeuge/bauen.py hinweise "linux ${{ matrix.distro }}" ||
+            echo "::notice title=Start-Test linux ${{ matrix.distro }}::nicht gelaufen (python3 fehlt?)"
+          liste() {                   # eine Zeile je Fund, fuer den Hinweis maskiert (% und Zeilenumbruch)
+            if [ ! -f "$1" ]; then echo -n "nicht geprueft"; return; fi
+            if [ ! -s "$1" ]; then echo -n "keine"; return; fi
+            while IFS= read -r zeile; do echo -n "%0A${zeile//\%/%25}"; done < "$1"
+          }
+          echo "::notice title=Fehlende Bibliotheken linux ${{ matrix.distro }}::Desktop-Grundstock (GTK 3, Mesa, NSS, ALSA, D-Bus): $(liste fehlend-grundstock.txt)%0A%0Amit den Qt-Paketen des Build-Jobs: $(liste fehlend-mit-qt.txt)"

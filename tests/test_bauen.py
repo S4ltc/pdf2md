@@ -88,9 +88,11 @@ class TestPaket:
         archiv = bauen.paket("linux-x86_64", "v9.9.9", tmp_path / "dist", tmp_path)
         assert archiv.name == "pdf2md-v9.9.9-linux-x86_64.tar.xz"
         namen = set(tarfile.open(archiv).getnames())
-        assert {"pdf2md/pdf2md", "pdf2md/_internal/lib.so", "LICENSE.txt", "LIESMICH.txt",
-                "DRITTLIZENZEN.txt"} <= namen
-        assert tarfile.open(archiv).getmember("pdf2md/pdf2md").mode & 0o111      # ausfuehrbar
+        oben = "pdf2md-v9.9.9-linux-x86_64"                 # ein Oberordner: tar -xf verstreut nichts
+        assert {f"{oben}/pdf2md/pdf2md", f"{oben}/pdf2md/_internal/lib.so", f"{oben}/LICENSE.txt",
+                f"{oben}/LIESMICH.txt", f"{oben}/DRITTLIZENZEN.txt"} <= namen
+        assert all(n == oben or n.startswith(oben + "/") for n in namen)
+        assert tarfile.open(archiv).getmember(f"{oben}/pdf2md/pdf2md").mode & 0o111      # ausfuehrbar
 
     def test_macos_mit_ditto(self, system, tmp_path, ohne_lizenzlauf, monkeypatch):
         """ditto erhaelt Verknuepfungen und Rechte im App-Paket (zipfile kann das nicht)."""

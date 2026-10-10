@@ -73,12 +73,64 @@ def programm(ausgabe: Path) -> Path:
 def bauen(ausgabe: Path) -> int:
     arbeit = Path(tempfile.gettempdir()) / "pdf2md-build"
     code = subprocess.run([sys.executable, "-m", "PyInstaller", *pyinstaller_argumente(ausgabe, arbeit)]).returncode
-    if code == 0 and not windows() and not mac():
+    if code != 0 or windows():
+        return code
+    if mac():
+        bericht = app_nachbearbeiten(ausgabe)
+        if not bericht["signiert"]:                    # Info.plist geaendert, alte Signatur ungueltig: startet nicht
+            code = 1
+    else:
         gespart, entfernt = aufraeumen(ausgabe)
         bericht = {"gespart_mb": round(gespart / 1e6, 1), "entfernt": entfernt}
-        (WURZEL / "aufgeraeumt.json").write_text(json.dumps(bericht, ensure_ascii=False, indent=1), encoding="utf-8")
-        print(json.dumps(bericht, ensure_ascii=False, indent=1))
+    # Dateiname aus der Zeit, als nur Linux nachbearbeitet wurde; bauen.yml meldet ihn als Hinweis „Aufgeraeumt …“
+    (WURZEL / "aufgeraeumt.json").write_text(json.dumps(bericht, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(json.dumps(bericht, ensure_ascii=False, indent=1))
     return code
+
+
+# Text der Rueckfrage, die macOS (ab 10.15) beim ersten Zugriff auf den Ordner Dokumente zeigt (dort liegt die Ablage
+# der App, plattform.ablage_basis)
+DOKUMENTE_ZWECK = ("pdf2md legt seine Ablage (Eingang, Fertig, Prüfen, Protokoll und Einstellungen) im Ordner "
+                   "Dokumente an.")
+
+
+def app_nachbearbeiten(ausgabe: Path) -> dict:
+    """macOS-Gegenstueck zu aufraeumen(): ergaenzt die Info.plist der gebauten pdf2md.app und signiert sie neu (ad hoc,
+    wie PyInstaller). Bericht fuer aufgeraeumt.json. LSMinimumSystemVersion = gemessenes Minimum aller Mach-O-Dateien
+    (mindestversionen): auf zu alten Systemen meldet macOS dann klar, dass die App dort nicht laeuft, statt dass sie
+    still abstuerzt. NSDocumentsFolderUsageDescription erklaert die Rueckfrage zum Ordner Dokumente. Die Signatur
+    deckt die Info.plist ab, deshalb danach neu signieren und streng pruefen (codesign --verify --deep --strict)."""
+    import plistlib                                    # nur hier gebraucht
+    app = ausgabe / "pdf2md.app"
+    bericht = mindestversionen(app)
+    plist = app / "Contents" / "Info.plist"
+    if plist.is_file():
+        with open(plist, "rb") as f:
+            info = plistlib.load(f)
+        bericht["LSMinimumSystemVersion_vorher"] = info.get("LSMinimumSystemVersion")
+        if bericht.get("macos_minos"):                 # nicht gemessen: lieber keine Angabe als eine geschaetzte
+            info["LSMinimumSystemVersion"] = bericht["macos_minos"]
+        info["NSDocumentsFolderUsageDescription"] = DOKUMENTE_ZWECK
+        with open(plist, "wb") as f:
+            plistlib.dump(info, f)
+        bericht["info_plist"] = {k: info[k] for k in ("LSMinimumSystemVersion", "NSDocumentsFolderUsageDescription")
+                                 if k in info}
+    else:
+        bericht["info_plist"] = "fehlt"
+    signiert, text_signieren = _codesign(["--force", "--deep", "--sign", "-", str(app)])
+    gueltig, text_pruefen = _codesign(["--verify", "--deep", "--strict", "--verbose=2", str(app)])
+    bericht.update(signiert=signiert, signatur_gueltig=gueltig,
+                   codesign=(text_signieren + "\n" + text_pruefen).strip()[-1500:])
+    return bericht
+
+
+def _codesign(argumente: list[str]) -> tuple[bool, str]:
+    """codesign mit Argumenten: (gelungen, Ausgabe)."""
+    try:
+        lauf = subprocess.run(["codesign", *argumente], capture_output=True, text=True, errors="replace")
+    except OSError as e:
+        return False, f"codesign nicht ausfuehrbar: {e}"
+    return lauf.returncode == 0, ((lauf.stdout or "") + (lauf.stderr or "")).strip()
 
 
 # Sprachen, die im Linux-Paket bleiben: Chromium faellt ohne passende Sprachdatei auf en-US zurueck, Qt laedt seine
@@ -208,8 +260,129 @@ def lizenzbericht(ordner: Path) -> dict:
                                       if k.lower().startswith(("pyside6", "shiboken6"))}}
 
 
+# Kennung am Dateianfang: ELF (Linux) und Mach-O (macOS: 32/64 Bit in beiden Byte-Reihenfolgen, Universal-Dateien)
+ELF_KOPF = (b"\x7fELF",)
+MACH_O_KOPF = tuple(bytes.fromhex(k) for k in ("feedface", "cefaedfe", "feedfacf", "cffaedfe",
+                                               "cafebabe", "bebafeca", "cafebabf", "bfbafeca"))
+GLIBC = re.compile(r"\bGLIBC_(\d+(?:\.\d+)+)\b")      # nicht GLIBC_PRIVATE, nicht GLIBCXX_ (libstdc++)
+OTOOL_TEIL = re.compile(r"\(architecture ([^)]+)\):\s*$")
+VERSIONSNUMMER = re.compile(r"\d+(?:\.\d+)*")
+
+
+def _versionsschluessel(version: str) -> tuple[int, ...]:
+    """Zum Vergleichen: 2.2.5 < 2.17 < 2.34, 10.13 < 11.0 = 11."""
+    teile = [int(t) for t in version.split(".")]
+    while len(teile) > 1 and teile[-1] == 0:
+        teile.pop()
+    return tuple(teile)
+
+
+def glibc_versionen(ausgabe: str) -> list[str]:
+    """GLIBC-Symbolversionen, die eine ELF-Datei von der glibc des Systems verlangt, aus `objdump -T`,
+    `readelf --dyn-syms` oder `readelf -V`. Es zaehlt nur, was die Datei braucht: undefinierte Symbole (*UND* bzw.
+    UND) und bei readelf -V nur der Abschnitt "Version needs". Was sie selbst anbietet, zaehlt nicht (libcrypt aus
+    libxcrypt etwa definiert GLIBC_2.2.5 zur Kompatibilitaet; "Version symbols" mischt beides)."""
+    versionen, abschnitt = [], None
+    for zeile in ausgabe.splitlines():
+        if zeile.startswith("Version "):               # Abschnittskopf von readelf -V: symbols, definition, needs
+            abschnitt = zeile.split()[1]
+        elif abschnitt is not None:
+            if abschnitt == "needs":
+                versionen += GLIBC.findall(zeile)
+        elif {"*UND*", "UND"} & set(zeile.split()):   # Symboltabelle (objdump -T, readelf --dyn-syms)
+            versionen += GLIBC.findall(zeile)
+    return versionen
+
+
+def macos_versionen(ausgabe: str, arch: str | None = None) -> list[str]:
+    """Mindestversionen von macOS aus `otool -l`: minos aus LC_BUILD_VERSION (nur Plattform macOS, nicht Mac
+    Catalyst) und version aus LC_VERSION_MIN_MACOSX (aeltere Dateien). Zeigt otool mehrere Architekturen einer
+    Universal-Datei, zaehlt mit `arch` nur dieser Teil (ein x86_64-Teil mit 10.9 sagt nichts ueber arm64)."""
+    bloecke, teil = [], None
+    for zeile in ausgabe.splitlines():
+        kopf = OTOOL_TEIL.search(zeile)
+        if kopf:
+            teil = kopf.group(1)
+            continue
+        feld = zeile.split(None, 1)
+        if len(feld) < 2:
+            continue
+        if feld[0] == "cmd":                           # Beginn eines Ladebefehls
+            bloecke.append((teil, feld[1].strip(), {}))
+        elif bloecke:
+            bloecke[-1][2].setdefault(feld[0], feld[1].strip())
+    versionen = []
+    for teil, befehl, werte in bloecke:
+        if arch and teil and teil != arch:
+            continue
+        if befehl == "LC_BUILD_VERSION" and werte.get("platform", "1").upper() in ("1", "MACOS"):
+            wert = werte.get("minos", "")
+        elif befehl == "LC_VERSION_MIN_MACOSX":
+            wert = werte.get("version", "")            # "version" im LC_BUILD_VERSION ist die des Linkers
+        else:
+            continue
+        if VERSIONSNUMMER.fullmatch(wert):
+            versionen.append(wert)
+    return versionen
+
+
+def _binaerdateien(ordner: Path, koepfe: tuple[bytes, ...]) -> list[Path]:
+    """Dateien im Ordner mit einer der Kennungen am Anfang (ohne Verknuepfungen: ihr Ziel liegt ohnehin im Ordner)."""
+    gefunden = []
+    for datei in sorted(ordner.rglob("*")):
+        if datei.is_file() and not datei.is_symlink():
+            try:
+                with open(datei, "rb") as f:
+                    if f.read(4) in koepfe:
+                        gefunden.append(datei)
+            except OSError:
+                pass
+    return gefunden
+
+
+def _versionsausgabe(datei: Path) -> str:
+    """Ausgabe des Werkzeugs, aus der sich die Mindestversion einer Datei lesen laesst (OSError, wenn es fehlt)."""
+    if mac():
+        befehl = ["otool", "-l", str(datei)]
+    elif shutil.which("objdump"):
+        befehl = ["objdump", "-T", str(datei)]
+    else:
+        befehl = ["readelf", "-V", "-W", str(datei)]
+    return subprocess.run(befehl, capture_output=True, text=True, errors="replace").stdout or ""
+
+
+def mindestversionen(ordner: Path, ausgabe_von=None, arch: str | None = None) -> dict:
+    """Welche Systemversion das Paket wirklich braucht, gemessen statt geschaetzt. macOS: hoechstes minos ueber alle
+    Mach-O-Dateien (otool -l). Linux: hoechste GLIBC_x.y-Symbolversion ueber alle ELF-Dateien (objdump -T, sonst
+    readelf -V), also die aelteste glibc, auf der das Paket laden kann. Dazu die Dateien, die dieses Minimum setzen
+    (hoechstens 5). Windows: nichts. `ausgabe_von(datei)` liefert die Ausgabe des Werkzeugs (Tests)."""
+    if windows():
+        return {}
+    feld = "macos_minos" if mac() else "glibc_max"
+    ausgabe_von = ausgabe_von or _versionsausgabe
+    if arch is None and mac() and sys.platform == "darwin":
+        import platform                                # nur hier gebraucht
+        arch = platform.machine()                      # arm64 bzw. x86_64, wie otool die Teile nennt
+    je_datei = {}
+    for datei in _binaerdateien(ordner, MACH_O_KOPF if mac() else ELF_KOPF):
+        try:
+            text = ausgabe_von(datei)
+        except OSError as e:                           # Werkzeug fehlt
+            return {feld: None, f"{feld}_fehler": f"nicht messbar: {e}"}
+        versionen = macos_versionen(text, arch) if mac() else glibc_versionen(text)
+        if versionen:
+            je_datei[datei.relative_to(ordner).as_posix()] = max(versionen, key=_versionsschluessel)
+    if not je_datei:
+        return {feld: None, f"{feld}_dateien": []}
+    hoechste = max(je_datei.values(), key=_versionsschluessel)
+    schluessel = _versionsschluessel(hoechste)
+    setzen = sorted(name for name, version in je_datei.items() if _versionsschluessel(version) == schluessel)
+    return {feld: hoechste, f"{feld}_dateien": setzen[:5]}
+
+
 def groessenbericht(ordner: Path, anzahl: int = 50) -> dict:
-    """Wo die Groesse eines Pakets steckt: entpackt gesamt, groesste Dateien und Ordner (je direkter Ordner)."""
+    """Wo die Groesse eines Pakets steckt: entpackt gesamt, groesste Dateien und Ordner (je direkter Ordner). Dazu die
+    gemessene Mindestversion des Systems (mindestversionen: macos_minos bzw. glibc_max)."""
     dateien = [(p.relative_to(ordner).as_posix(), p.stat().st_size) for p in ordner.rglob("*")
                if p.is_file() and not p.is_symlink()]
     je_ordner: dict[str, int] = {}
@@ -219,6 +392,7 @@ def groessenbericht(ordner: Path, anzahl: int = 50) -> dict:
     def mb(paare, n):                                  # eine Zeile je Eintrag, damit der Hinweis lesbar bleibt
         return [f"{groesse / 1e6:6.1f} MB  {name}" for name, groesse in sorted(paare, key=lambda x: -x[1])[:n]]
     return {"entpackt_mb": round(sum(g for _, g in dateien) / 1e6, 1), "dateien": len(dateien),
+            **mindestversionen(ordner),
             "groesste_dateien": mb(dateien, anzahl), "groesste_ordner": mb(je_ordner.items(), 15),
             "qt_plugins": sorted(name.split("/Qt/plugins/", 1)[1] for name, _ in dateien if "/Qt/plugins/" in name)}
 
@@ -253,13 +427,23 @@ def _packen(ordner: Path, stamm: Path) -> Path:
         subprocess.run(["ditto", "-c", "-k", "--keepParent", "--sequesterRsrc", str(ordner), str(archiv)], check=True)
         return archiv
     archiv = Path(f"{stamm}.tar.xz")             # xz statt gzip: Qt WebEngine packt sich damit deutlich kleiner
-    def ausfuehrbar(info: tarfile.TarInfo) -> tarfile.TarInfo:
-        if info.name == "pdf2md/pdf2md":                  # auch wenn das Paket nicht unter Linux entsteht
-            info.mode |= 0o755
+    # Alles in einem Oberordner pdf2md-TAG-linux-x86_64/ (wie der Archivname): tar -xf im Download-Ordner verstreut
+    # sonst LICENSE.txt, LIESMICH.txt usw. zwischen die anderen Dateien
+    oberordner = stamm.name
+    def rechte(info: tarfile.TarInfo) -> tarfile.TarInfo:
+        # Eigentuemer root statt des Build-Kontos (uid 1001 auf GitHub): entpackt root nach /opt, gehoerten die
+        # Dateien sonst einem zufaelligen lokalen Konto mit dieser uid, das das Programm aendern koennte
+        info.uid = info.gid = 0
+        info.uname = info.gname = ""
+        if info.name == oberordner:
+            info.mode = 0o755                          # wie ein von Hand angelegter Ordner, auch unter Windows gepackt
+        elif info.name == f"{oberordner}/pdf2md/pdf2md":
+            info.mode |= 0o755                         # ausfuehrbar, auch wenn das Paket nicht unter Linux entsteht
         return info
     with tarfile.open(archiv, "w:xz") as tar:
+        tar.add(ordner, arcname=oberordner, recursive=False, filter=rechte)
         for eintrag in sorted(ordner.iterdir()):
-            tar.add(eintrag, arcname=eintrag.name, filter=ausfuehrbar)
+            tar.add(eintrag, arcname=f"{oberordner}/{eintrag.name}", filter=rechte)
     return archiv
 
 
