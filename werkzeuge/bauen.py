@@ -55,9 +55,9 @@ def pyinstaller_argumente(ausgabe: Path, arbeit: Path) -> list[str]:
             args += ["--hidden-import", f"qtpy.{modul}", "--hidden-import", f"PySide6.{modul}"]
         # libQt6WebEngineCore braucht QML als Bibliothek (kommt ueber die Abhaengigkeiten mit), das Fenster aber keine
         # QML-Module. Die sammelt PyInstallers Hook fuer das Python-Modul QtQml ein, samt ihrer Bibliotheken (Quick 3D,
-        # Controls-Stile, Graphs, Qt 3D, ...). QtQuick bleibt (0,2 MB): ohne es meldete Chromium im Start-Test zweimal
-        # "Failed to send GpuControl.CreateCommandBuffer", mit ihm zweimal nicht. Warum, ist offen (Scenegraph-Plugins
-        # bringt es unter Linux keine mit); der Start-Test zaehlt die Meldungen ("chromium_fehler").
+        # Controls-Stile, Graphs, Qt 3D, ...). QtQuick bleibt (0,2 MB). Die Chromium-Meldung "Failed to send
+        # GpuControl.CreateCommandBuffer" kommt unter xvfb sporadisch: ohne QtQuick 2 von 2, mit QtQuick 1 von 4 Laeufen,
+        # also kein belegter Zusammenhang; der Start-Test zaehlt sie ("chromium_fehler").
         args += ["--exclude-module", "PySide6.QtQml"]
     return args + [str(WURZEL / "ui_app.py")]
 

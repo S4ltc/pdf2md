@@ -51,7 +51,7 @@ class TestArgumente:
         assert "--onefile" not in a and "webview.platforms.qt" in a and "PySide6.QtWebEngineWidgets" in a
         ausgeschlossen = [a[i + 1] for i, x in enumerate(a) if x == "--exclude-module"]
         assert "PySide6.QtQml" in ausgeschlossen and "PySide6.QtWebEngineCore" not in ausgeschlossen
-        assert "PySide6.QtQuick" not in ausgeschlossen      # ohne QtQuick GPU-Meldung im Start-Test (2 von 2 Laeufen)
+        assert "PySide6.QtQuick" not in ausgeschlossen      # bleibt (0,2 MB); nur die QML-Module sind gross
 
     def test_daten_mit_dem_trenner_des_systems(self, tmp_path):
         a = self.args(tmp_path)
