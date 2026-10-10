@@ -405,29 +405,39 @@ class TestMacApp:
         assert bauen.bauen(tmp_path) == 0 and not (tmp_path / "aufgeraeumt.json").exists()
 
 
-def fremde_importe(quelle: str) -> list[str]:
-    """Importe ausserhalb der Standardbibliothek, die nicht in try/except ImportError stehen. Ein Teil, der z.B.
-    fpdf2 braucht, darf so im Container still entfallen; ein ungeschuetzter Import liesse bauen.py dort scheitern."""
-    def fremde(knoten, abgesichert):
-        if isinstance(knoten, ast.Try) and any(
-                isinstance(h.type, ast.Name) and h.type.id in ("ImportError", "ModuleNotFoundError", "Exception")
-                for h in knoten.handlers):
-            for k in knoten.body:
-                yield from fremde(k, True)
-            for k in [*knoten.handlers, *knoten.orelse, *knoten.finalbody]:
-                yield from fremde(k, abgesichert)
-            return
-        namen = []
-        if isinstance(knoten, ast.Import):
-            namen = [a.name for a in knoten.names]
-        elif isinstance(knoten, ast.ImportFrom) and knoten.module and not knoten.level:
-            namen = [knoten.module]
-        for name in namen:
-            if name.split(".")[0] not in sys.stdlib_module_names and not abgesichert:
-                yield f"Zeile {knoten.lineno}: {name}"
-        for k in ast.iter_child_nodes(knoten):
-            yield from fremde(k, abgesichert)
-    return list(fremde(ast.parse(quelle, feature_version=(3, 11)), False))
+# Wie im Container des Distributionstests: bauen.py ohne pip-Pakete (python -I -S, also ohne site-packages) laden,
+# starttest mit nachgebildetem Programm und hinweise aufrufen, danach melden, welche Module ausserhalb der
+# Standardbibliothek geladen wurden. Ein Teil des Start-Tests, der fpdf2 o.ae. braucht, muss dort still entfallen.
+OHNE_PAKETE = '''
+import importlib.util, json, subprocess, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location("bauen", sys.argv[1])
+bauen = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bauen)
+bauen.SYSTEM = "linux"
+ordner = Path(sys.argv[2])
+def laufen(befehl, *args, **kw):
+    ziel = (kw.get("env") or {}).get("PDF2MD_STARTTEST")
+    if ziel:
+        Path(ziel).write_text(json.dumps({"ok": True, "gui": "qt"}), encoding="utf-8")
+    return subprocess.CompletedProcess(befehl, 0, "", "")
+subprocess.run = laufen
+bauen.os.environ["DISPLAY"] = ":0"
+code = bauen.starttest(ordner, ordner / "starttest.json")
+hinweis = bauen.hinweise("linux test", ordner, tag="probe")[0]
+fremd = sorted({m.split(".")[0] for m in sys.modules} - set(sys.stdlib_module_names) - {"__main__", "bauen"})
+print(json.dumps({"code": code, "hinweis": hinweis, "fremd": fremd}))
+'''
+
+
+def ohne_pakete(bauen_py: Path, ordner: Path) -> dict:
+    (ordner / "pdf2md").mkdir(parents=True, exist_ok=True)
+    (ordner / "pdf2md" / "pdf2md").write_bytes(ELF)
+    (ordner / "kind.py").write_text(OHNE_PAKETE, encoding="utf-8")
+    lauf = subprocess.run([sys.executable, "-I", "-S", str(ordner / "kind.py"), str(bauen_py), str(ordner)],
+                          capture_output=True, text=True, timeout=120)
+    assert lauf.returncode == 0, lauf.stderr[-2000:]
+    return json.loads(lauf.stdout.strip().splitlines()[-1])
 
 
 def fstring_neue_syntax(quelle: str) -> list[str]:
@@ -446,19 +456,36 @@ def fstring_neue_syntax(quelle: str) -> list[str]:
     return funde
 
 
-def test_bauen_laeuft_mit_python_311_ohne_pakete():
-    """Der Distributionstest (bauen.yml) startet bauen.py mit dem python3 des Containers (Debian 12: 3.11), ohne
-    pip: nur Standardbibliothek und keine Syntax neuer als 3.11."""
+def test_bauen_laeuft_ohne_pakete(tmp_path):
+    """Der Distributionstest (bauen.yml) startet bauen.py mit dem python3 des Containers, ohne pip: starttest und
+    hinweise brauchen nur die Standardbibliothek."""
+    ergebnis = ohne_pakete(WURZEL / "werkzeuge" / "bauen.py", tmp_path)
+    assert ergebnis["code"] == 0 and ergebnis["fremd"] == []
+    assert ergebnis["hinweis"].startswith("::notice title=Start-Test linux test::OK ")
+
+
+def test_ohne_pakete_erkennt_fremden_import(tmp_path):
+    """Die Nachstellung oben schlaegt an, wenn bauen.py beim Start-Test ein Paket braucht (hier: pytest)."""
     quelle = (WURZEL / "werkzeuge" / "bauen.py").read_text(encoding="utf-8")
-    assert fremde_importe(quelle) == [] and fstring_neue_syntax(quelle) == []
+    kaputt = tmp_path / "werkzeuge" / "bauen.py"
+    kaputt.parent.mkdir()
+    kaputt.write_text(re.sub(r"(?m)^(def starttest\(.*\).*:\n)", r"\1    import pytest\n", quelle, count=1),
+                      encoding="utf-8")
+    assert "    import pytest\n" in kaputt.read_text(encoding="utf-8")
+    with pytest.raises(AssertionError, match="No module named 'pytest'"):
+        ohne_pakete(kaputt, tmp_path / "lauf")
 
 
-def test_pruefung_auf_python_311_erkennt():
-    """Die beiden Pruefungen oben schlagen an, wo sie sollen (sonst bestuende der Test auch ohne Wirkung)."""
-    assert fremde_importe("import json\ndef f():\n    import fpdf\n") == ["Zeile 3: fpdf"]
-    assert fremde_importe("from docx import Document\n") == ["Zeile 1: docx"]
-    assert fremde_importe("def f():\n    try:\n        import fpdf\n    except ImportError:\n        return\n") == []
-    assert fremde_importe("from . import nachbar\nimport os.path\n") == []
+def test_bauen_mit_python_311_lesbar():
+    """Debian 12 hat Python 3.11: keine Syntax, die erst 3.12 kennt (f-Strings mit denselben Anfuehrungszeichen
+    innen wie aussen, PEP 701)."""
+    quelle = (WURZEL / "werkzeuge" / "bauen.py").read_text(encoding="utf-8")
+    ast.parse(quelle, feature_version=(3, 11))
+    assert fstring_neue_syntax(quelle) == []
+
+
+def test_fstring_pruefung_erkennt():
+    """Die Pruefung oben schlaegt an, wo sie soll (sonst bestuende der Test auch ohne Wirkung)."""
     assert fstring_neue_syntax("x = f\"{'a'}\"\n") == []
     assert fstring_neue_syntax("x = f'{\"a\"}'\n") == []
     assert fstring_neue_syntax("d = {}\nx = f\"{d[\"a\"]}\"\n") == ['Zeile 2: x = f"{d["a"]}"']
