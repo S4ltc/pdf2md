@@ -54,7 +54,7 @@ Hinweise am Lauf je Paket: „Start-Test NAME“, „Zertifikate NAME“ (nur Wa
 - Quelle: das Quellarchiv `qtwebengine-everywhere-src-<ver>.tar.xz` von download.qt.io (rund 550 MB, im Datenstrom gelesen, nichts auf die Platte), sonst ein Release-Kandidat oder der GitHub-Spiegel qt/qtwebengine-chromium (Archiv über codeload). Nur wenn `CHROMIUM_VERSION` der Quelle genau zu dem passt, was die Bibliothek meldet; sonst Abbruch. Ausgewählt wird nach den Regeln der `licenses.py` aus derselben Quelle (SPECIAL_CASES, PRUNE_PATHS, Shipped); ohne GN eine Obermenge, Bestandteile ohne Lizenzdatei werden vermerkt. Qt-Module (`QT_MODULE`) über ihre `qt_attribution.json`, ICU aus unicode-org/icu. Die PySide6-Wheels bringen keine Texte mit; Recherche und Begründung im Kopf des Werkzeugs.
 - bauen.yml (Linux, vor dem Paket): Versionen ermitteln, Cache (Schlüssel = Versionen + Hash des Werkzeugs), bei leerem Cache erzeugen (Zeitlimit 60 min; `GITHUB_TOKEN` nur für api.github.com).
 - `bauen.paket` legt die Datei neben `DRITTLIZENZEN.txt`; `drittlizenzen.einleitung()` verweist unter Linux darauf. Fehlt sie und steckt `libQt6WebEngineCore` im Ordner: ein **Release** (Tag) bricht ab, bevor kopiert wird; ein **Push-Build** (`TAG=probe`, Erzeugen mit `continue-on-error`) baut weiter, mit Warnung „Chromium-Lizenzen NAME“. `lizenzbericht` meldet `chromium_volltext`, `chromium_bestandteile`, `chromium_ohne_lizenztext` und `chromium_quelle`.
-- Stand 2026-10-11: auf GitHub noch nicht gelaufen. Erledigt ist die offene Aufgabe in CLAUDE.md erst, wenn ein CI-Lauf `chromium_volltext: true` zeigt. Tests: `tests/test_chromium_lizenzen.py` (erfundene Mini-Quellen, nachgebildetes Netz).
+- Erster Lauf auf GitHub (7e25741, 2026-10-11): Abbruch nach 14 s, „keine Quelle mit genau dem Chromium-Stand der Bibliothek“. Die Bibliothek meldet Chromium 140.0.7339.225 (Sicherheitsstand 152.0.7977.83). Tarballs und Tag zu Qt WebEngine 6.140.0 gibt es nicht; alle gefundenen Quellen (6.140.0-rc, Commit 62d4c2c3…) haben 140.0.7339.264 bei gleichem Sicherheitsstand. Paketbericht: `chromium_volltext: false`. Erledigt ist die offene Aufgabe in CLAUDE.md erst, wenn ein CI-Lauf `chromium_volltext: true` zeigt. Tests: `tests/test_chromium_lizenzen.py` (erfundene Mini-Quellen, nachgebildetes Netz).
 
 ## Fallen
 
@@ -62,7 +62,7 @@ Hinweise am Lauf je Paket: „Start-Test NAME“, „Zertifikate NAME“ (nur Wa
 - start.py darf nichts außerhalb der Standardbibliothek importieren (außer `plattform`, `aktualisierung`, `ui_app` im try), sonst fängt es Importfehler nicht mehr.
 - `plattform.oeffnen()` und `adresse_oeffnen()` werfen bei Fehlschlag OSError (macOS/Linux: Rückgabewert von open/xdg-open; läuft es länger als `OEFFNEN_WARTEN` = 2 s, gilt es als geöffnet). Aufrufer müssen ihn abfangen und anzeigen.
 - `hinweise()` nimmt Einträge als (titel, text, art) oder (titel, text) (`_hinweiszeilen`); ein Zweig mit 2-Tupeln bricht den Lauf so nicht mehr ab. Windows-Runner haben eine cp1252-Konsole: `hinweise` stellt stdout auf UTF-8, `starttest` druckt ersatzweise mit ASCII-Escapes.
-- Der Warntext `CHROMIUM_AUFGABE` sagt noch „nur als Verweis“; er erscheint nur, wenn ein Release-Paket Qt ohne erkannten Chromium-Volltext enthält.
+- Der Warntext `CHROMIUM_AUFGABE` erscheint nur, wenn ein Release-Paket Qt ohne erkannten Chromium-Volltext enthält.
 
 ## Hintergrund (aus CLAUDE.md)
 

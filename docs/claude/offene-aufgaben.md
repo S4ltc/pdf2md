@@ -1,6 +1,6 @@
 # Offene Aufgaben: Grundlagen und Pläne
 
-Zu den Einträgen unter „Offene Aufgaben“ in CLAUDE.md (außer Chromium-Lizenzen, die steht dort vollständig). Stand 2026-10-10: nur gelesen und geplant, nichts umgesetzt. Zeilennummern können inzwischen gewandert sein.
+Zu den Einträgen unter „Offene Aufgaben“ in CLAUDE.md. CLAUDE.md nennt dort nur Entscheidung und Kern; die Einzelheiten stehen hier. Ausnahmen: Chromium-Lizenzen (Skill `pakete-bauen`) und Schritt 3 (`docs/testplan-mac-linux.md`). Stand 2026-10-10: nur gelesen und geplant, nichts umgesetzt. Zeilennummern können inzwischen gewandert sein.
 
 Beim Umsetzen gilt:
 - Entscheidungen des Nutzers sind verbindlich.
@@ -108,7 +108,7 @@ Nicht Teil dieser Aufgabe: mehrere Bücher gleichzeitig umwandeln. Das wäre der
 | Seitenzahlen | 15 | Anteil Seiten mit gedruckter Zahl (nur neue Marker) |
 | Metadaten und Quellenangabe | 15 | Titel, Autor, Jahr je 3; vollständige Quellenangabe 6 |
 | Formeln | 15 | Anteil sicherer Formelzeilen |
-| Tabellen | 10 | Tabellen je Tabellentitel; im Hover die Grenze „Tabellen ohne Gitterlinien bleiben Text“ nennen |
+| Tabellen | 10 | Tabellen je Tabellentitel; im Hover die Grenze „Tabellen ganz ohne Linien bleiben Text“ nennen |
 
 - **Fehlende Kategorien:** Was es bei einem Buch nicht gibt (keine Formeln, keine Tabellen, Office-Formate ohne Seiten), zählt nicht. Score = erreichte durch mögliche Punkte × 100. Die Aufschlüsselung zeigt die umgerechneten Höchstpunkte, damit die Zeilen genau den Score ergeben (Rundung nach größten Resten).
 - **Nicht erfasst:** Das Verfahren lief nicht, etwa bei älteren .md. Das gibt weder 0 noch volle Punkte, der Score heißt dann „vorläufig“.
@@ -142,9 +142,11 @@ Nicht Teil dieser Aufgabe: mehrere Bücher gleichzeitig umwandeln. Das wäre der
 
 ## Issues und Pull Requests täglich vorprüfen
 
+**Wunsch des Nutzers (2026-10-09):** Issues und Pull Requests als Tagesaufgabe automatisch abfragen, beurteilen und einen Lösungsansatz vorschlagen.
+
 **Entscheidungen des Nutzers:**
 - Umsetzen erst zum Projektende (2026-10-09). Auch Ausschlussliste und Issue-Vorlagen nicht vorziehen, außer der Nutzer wünscht es ausdrücklich.
-- Ergebnis ist nur ein privater Bericht (2026-10-10). Der Nutzer entscheidet und postet selbst. Auf GitHub schreibt nichts automatisch: kein Kommentar, kein Label, kein Schließen, kein Push.
+- Ergebnis ist nur ein privater Bericht mit Einordnung, Lösungsansatz und Antwortentwurf (2026-10-10). Der Nutzer entscheidet und postet selbst. Auf GitHub schreibt nichts automatisch: kein Kommentar, kein Label, kein Schließen, kein Push.
 - Eine Ausschlussliste (was gegen die Grundsätze des Tools verstößt, z. B. OCR) und ein Schutz gegen Böswilligkeit wie Prompt-Injection gehören zur Aufgabe (2026-10-10). Wie beides aussieht, ist unten Empfehlung bzw. Entwurf.
 
 **Empfohlener Ablauf (vor Beginn bestätigen):**
@@ -222,6 +224,6 @@ Nicht Teil dieser Aufgabe: mehrere Bücher gleichzeitig umwandeln. Das wäre der
   - B5 Deutsch.
   - B6 Systemabhängiges nach `plattform.py`.
   - B7 .md mit LF.
-- **C, bekannte Grenze (Wunsch zulässig, kein Ausschluss):** Tabellen ohne Gitterlinien, Matrizen und große Klammern, Bilder, mehr als zwei Spalten, Fußnoten, Überschriften ohne Lesezeichen, weitere Formate.
+- **C, bekannte Grenze (Wunsch zulässig, kein Ausschluss):** Tabellen ganz ohne Linien, Matrizen und große Klammern, Bilder, mehr als zwei Spalten, Fußnoten, Überschriften ohne Lesezeichen, weitere Formate.
 
 **Aufwand:** etwa 3 Tage, für den Nutzer 30 bis 60 Minuten (Token, Repo-Einstellung, Aufgabe bestätigen).

@@ -7,7 +7,7 @@ zur Laufzeit) und berechnet abgeleitete Werte neu (tabellen.MIN_UEBERSTAND = 3 *
 
 Bewusst keine Einstellung: USER_AGENT (Datenschutz, eigener Test), DIAGNOSE (nur fuer Tests), Regex-Muster, Pfade,
 Zeichensaetze, Zuordnungstabellen, Marker und Textvorlagen. Die Standardwerte der Expertenstufe sind an 58 Buechern
-und 56 Normen gemessen (siehe CLAUDE.md); ein Test prueft, dass sie mit dem Code uebereinstimmen."""
+und 56 Normen gemessen (siehe docs/claude/); ein Test prueft, dass sie mit dem Code uebereinstimmen."""
 
 import importlib
 import json
