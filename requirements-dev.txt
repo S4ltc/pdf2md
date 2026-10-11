@@ -2,3 +2,4 @@
 pytest
 fpdf2
 python-docx
+pyyaml          # Tests lesen .github/workflows/bauen.yml (test_pakete_system, test_chromium_lizenzen)

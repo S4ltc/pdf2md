@@ -640,6 +640,13 @@ class TestPaket:
             bauen.paket("linux-x86_64", "v9.9.9", linux / "dist", linux)
         assert not list(linux.glob("pdf2md-*.tar.xz"))
 
+    def test_probe_paket_ohne_chromium_lizenzen_warnt_nur(self, linux, capsys):
+        """Bei jedem Push (TAG probe) entsteht das Paket trotzdem, mit Warnung am Lauf; nur ein Release bricht ab."""
+        archiv = bauen.paket("linux-x86_64", "probe", linux / "dist", linux)
+        assert archiv.exists()
+        assert "::warning title=Chromium-Lizenzen linux-x86_64::CHROMIUM-LIZENZEN.txt fehlt" in capsys.readouterr().out
+        assert not json.loads((linux / "paket.json").read_text(encoding="utf-8"))["chromium_volltext"]
+
     def test_ohne_qt_webengine_keine_pflicht(self, linux):
         """Ohne Qt WebEngine im Programmordner (also ohne Chromium) braucht das Paket die Datei nicht."""
         next((linux / "dist").rglob("libQt6WebEngineCore.so.6")).unlink()

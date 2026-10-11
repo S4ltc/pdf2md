@@ -592,13 +592,17 @@ def groessenbericht(ordner: Path, anzahl: int = 50) -> dict:
 def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Path:
     """pdf2md-TAG-NAME.zip (Windows, macOS) bzw. .tar.xz (Linux) mit Programm, Lizenz, Fremdlizenzen und LIESMICH.
     Unter Linux kommt CHROMIUM-LIZENZEN.txt aus dem Projektordner dazu; steckt Qt WebEngine (also Chromium) im
-    Programmordner und fehlt die Datei, bricht das Paket ab (vor dem Kopieren), statt Chromium ohne seine
-    Lizenztexte weiterzugeben."""
+    Programmordner und fehlt die Datei, bricht ein Release-Paket ab (vor dem Kopieren), statt Chromium ohne seine
+    Lizenztexte weiterzugeben. Ein Probe-Paket (TAG "probe", jeder Push) entsteht trotzdem, mit Warnung am Lauf:
+    sonst blockierte eine voruebergehend nicht erreichbare Quelle jeden Build."""
     linux = not (windows() or mac())
     if linux and not CHROMIUM_LIZENZEN.is_file() and any((ausgabe / "pdf2md").rglob("libQt6WebEngineCore.so*")):
-        raise SystemExit(f"{CHROMIUM_LIZENZEN} fehlt: Qt WebEngine enthält Chromium, ohne dessen Lizenztexte wird "
-                         f"kein Paket gebaut. Erzeugen mit: python werkzeuge/chromium_lizenzen.py "
-                         f"{CHROMIUM_LIZENZEN.name} (bauen.yml macht das vor dem Paket)")
+        grund = (f"{CHROMIUM_LIZENZEN.name} fehlt: Qt WebEngine enthält Chromium, ohne dessen Lizenztexte wird "
+                 f"kein Release-Paket gebaut. Erzeugen mit: python werkzeuge/chromium_lizenzen.py "
+                 f"{CHROMIUM_LIZENZEN.name} (bauen.yml macht das vor dem Paket)")
+        if tag != "probe":
+            raise SystemExit(grund)
+        print(f"::warning title=Chromium-Lizenzen {name}::{grund}")
     ordner = Path(tempfile.mkdtemp()) / "pdf2md"        # macOS: oberster Ordner im ZIP (ditto --keepParent)
     ordner.mkdir()
     if windows():
