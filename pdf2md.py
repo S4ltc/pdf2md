@@ -1380,7 +1380,10 @@ def _markitdown_umwandeln(pfad: Path, seiten: int | None, konverter: MarkItDown)
             # die Unterprozesse importieren die Module frisch (Standardwerte): Einstellungen dort erneut anwenden
             start = ({"initializer": einstellungen.anwenden, "initargs": (einstellungen.aktuell(),)}
                      if einstellungen is not None else {})
-            with concurrent.futures.ProcessPoolExecutor(max_workers=prozesse, **start) as pool:
+            # spawn auf allen Systemen: Linux naehme sonst fork, und ein Fork aus dem Fenster-Prozess mit seinen Qt- und
+            # Chromium-Threads kann haengen bleiben; Windows und macOS starten Unterprozesse ohnehin so
+            kontext = multiprocessing.get_context("spawn")
+            with concurrent.futures.ProcessPoolExecutor(max_workers=prozesse, mp_context=kontext, **start) as pool:
                 aufgaben = {pool.submit(_paket_umwandeln, str(pfad), a, e): i
                             for i, (a, e) in enumerate(pakete)}
                 fortschritt_melden("Seiten umwandeln", 0, seiten)
@@ -2052,8 +2055,11 @@ def fehlertext(e: BaseException, datei: Path) -> str:
         leer = False
     if leer or "empty file" in roh:
         return "leere Datei (0 Byte)"
-    if isinstance(e, PermissionError) or "WinError 32" in roh or "being used by another process" in roh:
+    if (isinstance(e, PermissionError) and plattform.windows()) or "WinError 32" in roh \
+            or "being used by another process" in roh:
         return "Datei ist gesperrt, vermutlich in einem anderen Programm geöffnet: schließen und erneut starten"
+    if isinstance(e, PermissionError):      # macOS/Linux sperren geoeffnete Dateien nicht: dort fehlt die Berechtigung
+        return f"keine Berechtigung für die Datei oder ihren Ordner: {plattform.zugriff_hinweis()} und erneut starten"
     if re.search(r"decrypt|password|encrypt", roh, re.IGNORECASE):
         return "passwortgeschützt: ohne Passwort neu speichern (z. B. „Als PDF drucken“) und erneut hinzufügen"
     if re.search(r"BadZipFile|not a zip file|KeyError.*(?:archive|item named)|container\.xml", roh, re.IGNORECASE):

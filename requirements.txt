@@ -6,6 +6,8 @@ fonttools
 pillow
 numpy
 pywebview
+# Wurzelzertifikate fuer HTTPS in der App unter macOS/Linux (plattform.vorbereiten); kaeme sonst nur ueber requests
+certifi
 # Fenster unter Linux: QtWebEngine ueber PySide6 (LGPL; nicht PyQt6, das stuende unter GPL)
 PySide6; sys_platform == "linux"
 qtpy; sys_platform == "linux"

@@ -103,8 +103,9 @@ class TestMeldungen:
         erzeuge_pdf(arbeitsordner.eingang / "scan.pdf", ["", ""], titel="Scan", autor="A")
         assert "Scan ohne Texterkennung" in p.verarbeiten(arbeitsordner.eingang / "scan.pdf", konverter, lauf)
 
-    def test_verstaendliche_fehlertexte(self, tmp_path):
+    def test_verstaendliche_fehlertexte(self, tmp_path, monkeypatch):
         from pypdf import PdfWriter
+        monkeypatch.setattr(p.plattform, "SYSTEM", "win32")      # gesperrte Datei gibt es nur unter Windows
         leer = tmp_path / "leer.pdf"
         leer.write_bytes(b"")
         assert "leer" in p.fehlertext(ValueError("Cannot read an empty file"), leer)
@@ -144,6 +145,7 @@ class TestGesperrteDateien:
     def test_gesperrtes_original_hinterlaesst_keine_md(self, arbeitsordner, monkeypatch):
         erzeuge_buch(arbeitsordner.eingang / "a.pdf")
         self.gesperrt(monkeypatch)
+        monkeypatch.setattr(p.plattform, "SYSTEM", "win32")      # gesperrte Datei gibt es nur unter Windows
         stati = []
         p.eingang_verarbeiten("2026-01-01 10:00:00", melder=lambda t: None, datei_fertig=lambda n, s: stati.append(s))
         assert "geöffnet" in stati[0]

@@ -50,10 +50,16 @@ def extern_oeffnen(pfad: Path) -> None:
     plattform.oeffnen(pfad)
 
 
-def link_oeffnen(adresse: str) -> None:
-    """Seite im Standardbrowser oeffnen (nur feste Adressen aus dem Code, nie aus der Oberflaeche)."""
-    import webbrowser
-    webbrowser.open(adresse)
+def link_oeffnen(adresse: str) -> bool:
+    """Seite im Standardbrowser oeffnen (nur feste Adressen aus dem Code, nie aus der Oberflaeche). macOS/Linux ueber
+    open/xdg-open mit der Umgebung fuer Programme des Systems (plattform.adresse_oeffnen). Ein Fehler steht wie bisher
+    bei webbrowser nur auf der Konsole; False, wenn sich nichts oeffnen liess."""
+    try:
+        plattform.adresse_oeffnen(adresse)
+    except OSError as e:
+        print(f"{adresse} lässt sich nicht öffnen ({e})", file=sys.stderr)
+        return False
+    return True
 
 
 def ordner_von(bereich: str) -> Path:
@@ -431,7 +437,10 @@ class Api:
             return
         import concurrent.futures
         prozesse = max(1, min(8, (os.cpu_count() or 2) // 2, len(fehlend) // 10))
-        with concurrent.futures.ProcessPoolExecutor(max_workers=prozesse) as pool:
+        # spawn auf allen Systemen: ein fork (Standard unter Linux) aus dem Fenster-Prozess mit Qt-/Chromium-Threads
+        # kann haengen bleiben; Windows und macOS starten Unterprozesse ohnehin so
+        kontext = multiprocessing.get_context("spawn")
+        with concurrent.futures.ProcessPoolExecutor(max_workers=prozesse, mp_context=kontext) as pool:
             ergebnisse = pool.map(ablage.kennzahlen_lesen, [str(m) for m, _ in fehlend], [aktuell] * len(fehlend),
                                   chunksize=8)
             for (md, schluessel), kennzahlen in zip(fehlend, ergebnisse):
@@ -575,6 +584,40 @@ def einzelinstanz(basis: Path) -> bool:
     return plattform.einzelinstanz(basis)
 
 
+FEHLERDATEI = "pdf2md-fehler.txt"      # Traceback eines Fehlers, der main() abbricht (Ablage, sonst Temp-Ordner)
+
+
+def ablage_ordner() -> Path:
+    """Ablage neben dem Programm; PDF2MD_ABLAGE zeigt zum Entwickeln auf eine Kopie (nie auf dist)."""
+    return Path(os.environ.get("PDF2MD_ABLAGE") or pdf2md.BASE_DIR)
+
+
+def startfehler_melden(text: str) -> None:
+    """Meldung beim Start. Im Start-Test beim Bauen (PDF2MD_STARTTEST) nur auf die Konsole: ein Dialog wartete dort
+    bis zum Zeitlimit, und der Text ginge im Bericht verloren."""
+    if os.environ.get("PDF2MD_STARTTEST"):
+        print(text, file=sys.stderr)
+    else:
+        meldung(text)
+
+
+def fehler_festhalten(text: str) -> Path | None:
+    """Schreibt text (den Traceback) nach FEHLERDATEI in der Ablage; geht das nicht (kein Zugriff, Ablage nicht
+    anlegbar), in den Temp-Ordner. Rueckgabe: die Datei, None, wenn beides scheitert."""
+    import tempfile
+    inhalt = f"pdf2md {aktualisierung.VERSION} ({plattform.SYSTEM}), {datetime.now():%Y-%m-%d %H:%M:%S}\n\n{text}"
+    for ordner in (ablage_ordner, lambda: Path(tempfile.gettempdir())):
+        try:
+            ziel = ordner()
+            ziel.mkdir(parents=True, exist_ok=True)
+            datei = ziel / FEHLERDATEI
+            datei.write_text(inhalt, encoding="utf-8")
+            return datei
+        except Exception:
+            continue
+    return None
+
+
 def system_dunkel() -> bool:
     return plattform.dunkel()
 
@@ -604,13 +647,35 @@ def _starttest(fenster, ziel: Path) -> None:
 
 
 def main() -> int:
+    """Einstieg (pdf2md.exe, App, python ui_app.py). Ein Fehler, der hier ankommt, liesse das Programm sonst ohne jede
+    Meldung verschwinden (Fenster-Anwendung ohne Konsole): Traceback nach FEHLERDATEI und Meldung mit dem Pfad."""
+    try:
+        return _programm()
+    except Exception as e:
+        import traceback
+        datei = fehler_festhalten(traceback.format_exc())
+        text = f"pdf2md wurde wegen eines Fehlers beendet:\n{type(e).__name__}: {str(e)[:500]}"
+        if isinstance(e, PermissionError):
+            text += f"\n\nAbhilfe: {plattform.zugriff_hinweis()}, dann pdf2md neu starten."
+        if datei is not None:
+            text += f"\n\nEinzelheiten stehen in:\n{datei}"
+        startfehler_melden(text)
+        return 1
+
+
+def _programm() -> int:
     multiprocessing.freeze_support()                         # noetig, damit die Unterprozesse in der .exe starten
     plattform.vorbereiten()
     starttest = os.environ.get("PDF2MD_STARTTEST")             # nur beim Bauen gesetzt (werkzeuge/bauen.py)
-    # Ablage neben dem Programm; PDF2MD_ABLAGE zeigt zum Entwickeln auf eine Kopie (nie auf dist)
-    basis = Path(os.environ.get("PDF2MD_ABLAGE") or pdf2md.BASE_DIR)
-    if not einzelinstanz(basis):
-        meldung(f"pdf2md läuft für diesen Ordner schon:\n{basis}")
+    basis = ablage_ordner()
+    try:
+        frei = einzelinstanz(basis)
+    except OSError as e:                     # macOS: Zugriff auf Dokumente verweigert (Datenschutz), sonst Rechte
+        startfehler_melden(f"pdf2md hat keinen Zugriff auf seinen Ordner:\n{basis}\n{e.strerror or e}\n\n"
+                           f"Abhilfe: {plattform.zugriff_hinweis()}, dann pdf2md neu starten.")
+        return 1
+    if not frei:
+        startfehler_melden(f"pdf2md läuft für diesen Ordner schon:\n{basis}")
         return 1
     import webview
     api = Api(basis)
