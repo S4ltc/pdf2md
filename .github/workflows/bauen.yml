@@ -81,64 +81,91 @@ jobs:
         run: python werkzeuge/bauen.py hinweise "${{ matrix.name }}"
 
   # Start-Test des Linux-Pakets auf anderen Distributionen als dem Build-System (Ubuntu 22.04), je in einem Container.
-  # Zuerst nur ein Desktop-Grundstock: was GTK-3-Programme und ein Browser mitbringen (GTK 3 samt X11-Bibliotheken,
-  # Mesa EGL/GL, fontconfig mit Schrift, NSS, ALSA, D-Bus, XTest) und der virtuelle Bildschirm. Was dem Paket darauf
-  # fehlt (ldd, nur "not found"), muesste ein Nutzer nachinstallieren. Dann kommen die Qt-Pakete dazu, die der
-  # Build-Job oben auch installiert (xcb-util, xkbcommon-x11, libOpenGL), und der Start-Test laeuft. Hinweise:
-  # "Start-Test linux <distro>" und "Fehlende Bibliotheken linux <distro>". bauen.py laeuft mit dem python3 des
-  # Containers (nur Standardbibliothek, ab 3.11 wie in Debian 12) und als root (Chromium-Sandbox ist ohnehin aus).
-  # Nur zur Information: continue-on-error, ein Fehlschlag haelt weder diesen Lauf noch das Release auf (release.yml
-  # wartet aber, bis die Container fertig sind).
+  # Zuerst die Werkzeuge (python3, virtueller Bildschirm mit xauth und util-linux fuer xvfb-run, tar, xz) in einem
+  # eigenen Schritt ohne continue-on-error: fehlt dort etwas, kann der Job nichts messen und scheitert sichtbar. Die
+  # Bibliotheken kommen danach einzeln (apt-get installiert eine Liste ganz oder gar nicht; dnf mit
+  # --skip-unavailable), ein unbekannter oder umbenannter Name kostet so nur dieses eine Paket: Warnung
+  # "Paket fehlt linux <distro>". Drei Stufen, je mit ldd (nur "not found", also was ein Nutzer nachinstallieren
+  # muesste) und Start-Test, Hinweis "Start-Test linux <distro> (<Stufe>)":
+  #   1. Grundstock: was GTK-3-Programme und ein Browser mitbringen (GTK 3 samt X11-Bibliotheken, Mesa EGL/GL,
+  #      fontconfig mit Schrift, NSS, ALSA, D-Bus, XTest)
+  #   2. Grundstock + Paket aus LIESMICH: dazu das eine Paket, das docs/LIESMICH.txt Nutzern nennt
+  #   3. mit allen Qt-Paketen: dazu die uebrigen Qt-Pakete des Build-Jobs oben (xcb-util, xkbcommon-x11, libOpenGL)
+  # Am Ende der Hinweis "Fehlende Bibliotheken linux <distro>" mit der ldd-Liste je Stufe. bauen.py laeuft mit dem
+  # python3 des Containers (nur Standardbibliothek, ab 3.11 wie in Debian 12) und als root (Chromium-Sandbox ist
+  # ohnehin aus). Nur zur Information: continue-on-error, ein Fehlschlag haelt weder diesen Lauf noch das Release auf
+  # (release.yml wartet aber, bis die Container fertig sind).
   distributionen:
     name: Start-Test linux ${{ matrix.distro }}
     needs: bauen
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     continue-on-error: true
-    timeout-minutes: 20
+    timeout-minutes: 40               # drei Start-Tests, jeder bis zu STARTTEST_ZEIT (7 min)
     strategy:
       fail-fast: false
       matrix:
         include:
           - distro: ubuntu-24.04
             image: ubuntu:24.04
+            verwaltung: apt
+            werkzeuge: python3 xvfb xauth util-linux tar xz-utils
             grundstock: >-
-              apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
-              python3 xvfb xauth util-linux xz-utils libgtk-3-0t64 libegl1 libgl1 libegl-mesa0 libglx-mesa0
-              libgl1-mesa-dri fontconfig fonts-dejavu-core libnss3 libasound2t64 libdbus-1-3 libxtst6
+              libgtk-3-0t64 libegl1 libgl1 libegl-mesa0 libglx-mesa0 libgl1-mesa-dri fontconfig fonts-dejavu-core
+              libnss3 libasound2t64 libdbus-1-3 libxtst6
+            liesmich: libxcb-cursor0
             qt: >-
-              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libopengl0
-              libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
+              libopengl0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
               libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbfile1
           - distro: debian-12
             image: debian:12
+            verwaltung: apt
+            werkzeuge: python3 xvfb xauth util-linux tar xz-utils
             grundstock: >-
-              apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends
-              python3 xvfb xauth util-linux xz-utils libgtk-3-0 libegl1 libgl1 libegl-mesa0 libglx-mesa0
-              libgl1-mesa-dri fontconfig fonts-dejavu-core libnss3 libasound2 libdbus-1-3 libxtst6
+              libgtk-3-0 libegl1 libgl1 libegl-mesa0 libglx-mesa0 libgl1-mesa-dri fontconfig fonts-dejavu-core
+              libnss3 libasound2 libdbus-1-3 libxtst6
+            liesmich: libxcb-cursor0
             qt: >-
-              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libopengl0
-              libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
+              libopengl0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
               libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbfile1
           - distro: fedora-41
             image: fedora:41
+            verwaltung: dnf
+            werkzeuge: python3 xorg-x11-server-Xvfb xorg-x11-xauth util-linux tar xz
             grundstock: >-
-              dnf install -y --setopt=install_weak_deps=False
-              python3 xorg-x11-server-Xvfb xorg-x11-xauth util-linux tar xz gtk3 mesa-libEGL mesa-libGL
-              mesa-dri-drivers fontconfig dejavu-sans-fonts nss alsa-lib dbus-libs libXtst
+              gtk3 mesa-libEGL mesa-libGL mesa-dri-drivers fontconfig dejavu-sans-fonts nss alsa-lib dbus-libs
+              libXtst
+            liesmich: xcb-util-cursor
             qt: >-
-              dnf install -y --setopt=install_weak_deps=False libglvnd-opengl libxkbcommon-x11 xcb-util-cursor
-              xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm libxkbfile
+              libglvnd-opengl libxkbcommon-x11 xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm
+              libxkbfile
     container:
       image: ${{ matrix.image }}
       options: --shm-size=1g          # Chromium legt geteilten Speicher in /dev/shm an (Docker: sonst 64 MB)
+    env:                              # die Skripte unten lesen nur Umgebungsvariablen, keine ${{ }}-Ausdruecke
+      DISTRO: ${{ matrix.distro }}
+      VERWALTUNG: ${{ matrix.verwaltung }}
+      WERKZEUGE: ${{ matrix.werkzeuge }}
+      GRUNDSTOCK: ${{ matrix.grundstock }}
+      LIESMICH: ${{ matrix.liesmich }}
+      QT: ${{ matrix.qt }}
+      STUFE_1: Grundstock
+      STUFE_2: Grundstock + Paket aus LIESMICH
+      STUFE_3: mit allen Qt-Paketen
+      DEBIAN_FRONTEND: noninteractive
     defaults:
       run:
         shell: bash
     steps:
-      - name: Desktop-Grundstock und virtueller Bildschirm
-        continue-on-error: true       # fehlt ein Paket, zeigen ldd und der Start-Test, was dann fehlt
-        run: ${{ matrix.grundstock }}
+      - name: Werkzeuge (python3, virtueller Bildschirm, tar, xz)
+        # bewusst ohne continue-on-error: ohne diese Werkzeuge misst der Job nichts und soll sichtbar scheitern
+        run: |
+          if [ "$VERWALTUNG" = apt ]; then
+            apt-get update
+            apt-get install -y --no-install-recommends $WERKZEUGE
+          else
+            dnf install -y --setopt=install_weak_deps=False $WERKZEUGE
+          fi
 
       - uses: actions/checkout@v7
 
@@ -156,13 +183,22 @@ jobs:
           if [ ${#oben[@]} -eq 1 ] && [ -e "${oben[0]}/pdf2md/pdf2md" ]; then
             echo "ORDNER=${oben[0]}" >> "$GITHUB_ENV"
           else
-            echo "::warning title=Archiv linux ${{ matrix.distro }}::kein gemeinsamer Oberordner: ${oben[*]}"
+            echo "::warning title=Archiv linux $DISTRO::kein gemeinsamer Oberordner: ${oben[*]}"
             echo "ORDNER=entpackt" >> "$GITHUB_ENV"
           fi
-          # ldd-Pruefung fuer beide Stufen: Starter, Qt-Plattform-Plugin xcb und Qt WebEngine (braucht NSS, ALSA
-          # usw. vom System); LD_LIBRARY_PATH ungefaehr wie zur Laufzeit (PyInstaller-Starter: _internal, Qt: Qt/lib)
+
+      - name: Hilfsskripte (ldd-Prüfung, Stufe)
+        run: |
+          # ldd auf Starter, Qt-Plattform-Plugin xcb und Qt WebEngine (braucht NSS, ALSA usw. vom System), eine Zeile
+          # je fehlender Bibliothek; LD_LIBRARY_PATH ungefaehr wie zur Laufzeit (PyInstaller-Starter: _internal, Qt:
+          # Qt/lib). Fehlt ldd selbst: einmal eine Warnung auf stderr, Rueckgabe 1 = nicht geprueft (keine Liste).
           cat > fehlend.sh <<'ENDE'
-          command -v ldd > /dev/null || { echo "ldd fehlt im Container"; exit 0; }
+          if ! command -v ldd > /dev/null; then
+            [ -e ldd-gemeldet ] ||
+              echo "::warning title=ldd fehlt linux $DISTRO::ldd fehlt im Container, fehlende Bibliotheken nicht geprüft" >&2
+            touch ldd-gemeldet
+            exit 1
+          fi
           intern="$ORDNER/pdf2md/_internal"
           export LD_LIBRARY_PATH="$intern:$intern/PySide6/Qt/lib"
           shopt -s nullglob globstar
@@ -171,34 +207,72 @@ jobs:
             ldd "$datei" 2>&1 | grep "not found" | sed "s|^[[:space:]]*|${datei##*/}: |" || true
           done | sort -u
           ENDE
-
-      - name: Fehlende Bibliotheken im Desktop-Grundstock (ldd)
-        run: bash fehlend.sh | tee fehlend-grundstock.txt
-
-      - name: Qt-Pakete dazu (wie im Build-Job)
-        continue-on-error: true
-        run: ${{ matrix.qt }}
-
-      - name: Start-Test
-        continue-on-error: true       # das Ergebnis steht im Hinweis, nicht im Status des Laufs
-        run: |
-          bash fehlend.sh | tee fehlend-mit-qt.txt
+          # Eine Stufe: bash stufe.sh NUMMER PAKET... (Name aus STUFE_<NUMMER>). Pakete dazu, ldd, Start-Test und
+          # Hinweis "Start-Test linux <distro> (<Stufe>)". Ohne set -e: ein Fehler in einem Teil haelt den Rest nicht auf.
+          cat > stufe.sh <<'ENDE'
+          nummer="$1"
+          shift
+          name="STUFE_$nummer"
+          stufe="${!name}"
+          if [ "$VERWALTUNG" = apt ]; then
+            # einzeln: apt-get installiert eine Liste ganz oder gar nicht, ein unbekannter Name kostete sonst alle
+            for paket in "$@"; do
+              if ! apt-get install -y --no-install-recommends "$paket" > paket.log 2>&1; then
+                grund=$(grep -m 1 "^E:" paket.log || tail -n 1 paket.log)
+                echo "::warning title=Paket fehlt linux $DISTRO::$paket ($stufe): ${grund//\%/%25}"
+              fi
+            done
+          else
+            # --skip-unavailable: unbekannte Namen ueberspringen, den Rest installieren; was fehlt, zeigt rpm danach
+            if ! dnf install -y --setopt=install_weak_deps=False --skip-unavailable "$@"; then
+              for paket in "$@"; do
+                dnf install -y --setopt=install_weak_deps=False --skip-unavailable "$paket" || true
+              done
+            fi
+            for paket in "$@"; do
+              rpm -q --whatprovides "$paket" > /dev/null 2>&1 ||
+                echo "::warning title=Paket fehlt linux $DISTRO::$paket ($stufe): nicht installiert"
+            done
+          fi
+          if bash fehlend.sh > "fehlend-$nummer.txt"; then cat "fehlend-$nummer.txt"; else rm -f "fehlend-$nummer.txt"; fi
           # xvfb-run braucht xauth, mcookie und getopt; fehlt es, laeuft der virtuelle Bildschirm direkt
-          if ! command -v xvfb-run > /dev/null && command -v Xvfb > /dev/null; then
+          xvfb=
+          if [ -z "${DISPLAY:-}" ] && ! command -v xvfb-run > /dev/null && command -v Xvfb > /dev/null; then
             Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp &
+            xvfb=$!
             export DISPLAY=:99
             sleep 3
           fi
-          python3 werkzeuge/bauen.py starttest "$ORDNER"
+          rm -f starttest.json
+          python3 werkzeuge/bauen.py starttest "$ORDNER"      # das Ergebnis steht im Hinweis, nicht im Status
+          if [ -n "$xvfb" ]; then kill "$xvfb"; wait "$xvfb"; fi    # beendet, bevor die naechste Stufe :99 braucht
+          python3 werkzeuge/bauen.py hinweise "linux $DISTRO ($stufe)"
+          touch "gelaufen-$nummer"
+          ENDE
+
+      - name: Stufe 1 (Grundstock)
+        continue-on-error: true       # die naechste Stufe soll in jedem Fall laufen
+        run: bash stufe.sh 1 $GRUNDSTOCK
+
+      - name: Stufe 2 (Grundstock + Paket aus LIESMICH)
+        continue-on-error: true
+        run: bash stufe.sh 2 $LIESMICH
+
+      - name: Stufe 3 (mit allen Qt-Paketen)
+        continue-on-error: true
+        run: bash stufe.sh 3 $QT
 
       - name: Ergebnisse als Hinweis
         if: always()
         run: |
-          python3 werkzeuge/bauen.py hinweise "linux ${{ matrix.distro }}" ||
-            echo "::notice title=Start-Test linux ${{ matrix.distro }}::nicht gelaufen (python3 fehlt?)"
+          for nummer in 1 2 3; do     # Stufen ohne eigenen Hinweis: Werkzeuge, Paket oder Entpacken gescheitert
+            name="STUFE_$nummer"
+            [ -e "gelaufen-$nummer" ] ||
+              echo "::notice title=Start-Test linux $DISTRO (${!name})::nicht gelaufen (Werkzeuge, Paket oder Entpacken fehlgeschlagen?)"
+          done
           liste() {                   # eine Zeile je Fund, fuer den Hinweis maskiert (% und Zeilenumbruch)
-            if [ ! -f "$1" ]; then echo -n "nicht geprueft"; return; fi
+            if [ ! -f "$1" ]; then echo -n "nicht geprüft"; return; fi
             if [ ! -s "$1" ]; then echo -n "keine"; return; fi
             while IFS= read -r zeile; do echo -n "%0A${zeile//\%/%25}"; done < "$1"
           }
-          echo "::notice title=Fehlende Bibliotheken linux ${{ matrix.distro }}::Desktop-Grundstock (GTK 3, Mesa, NSS, ALSA, D-Bus): $(liste fehlend-grundstock.txt)%0A%0Amit den Qt-Paketen des Build-Jobs: $(liste fehlend-mit-qt.txt)"
+          echo "::notice title=Fehlende Bibliotheken linux $DISTRO::$STUFE_1: $(liste fehlend-1.txt)%0A%0A$STUFE_2: $(liste fehlend-2.txt)%0A%0A$STUFE_3: $(liste fehlend-3.txt)"

@@ -1,14 +1,17 @@
 """Was die Pakete vom System verlangen und wie sie ankommen (werkzeuge/bauen.py): gemessene Mindestversion (macOS:
 minos aller Mach-O-Dateien, Linux: hoechste GLIBC-Symbolversion aller ELF-Dateien), Nachbearbeitung der macOS-App
-(Info.plist, neue Signatur) und das Linux-Archiv mit einem Oberordner. otool, objdump, readelf und codesign sind
-nachgebildet; nur die Tests am Ende laufen mit dem echten Werkzeug, wenn das System es hat (macOS bzw. Linux in
-tests.yml auf GitHub)."""
+(Info.plist, neue Signatur) und das Linux-Archiv mit einem Oberordner, dazu der Job distributionen in bauen.yml (in
+bash nachgestellt, braucht PyYAML). otool, objdump, readelf, codesign, apt-get, dnf und ldd sind nachgebildet; nur
+die Tests am Ende laufen mit dem echten Werkzeug, wenn das System es hat (macOS bzw. Linux in tests.yml auf
+GitHub)."""
 import ast
 import importlib.util
 import io
 import json
+import os
 import plistlib
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -345,8 +348,9 @@ class TestMacApp:
         with open(app / "Contents" / "Info.plist", "rb") as f:
             return plistlib.load(f)
 
-    def codesign_nachbau(self, monkeypatch, app, signieren_ok=True):
+    def codesign_nachbau(self, monkeypatch, app, signieren_ok=True, pruefen_ok=None):
         aufrufe = []
+        pruefen_ok = signieren_ok if pruefen_ok is None else pruefen_ok
 
         def laufen(befehl, **kw):
             aufrufe.append(befehl)
@@ -355,8 +359,9 @@ class TestMacApp:
                 return subprocess.CompletedProcess(befehl, 0 if signieren_ok else 1, "", "" if signieren_ok else
                                                    "pdf2md.app: code object is not signed at all")
             if befehl[:2] == ["codesign", "--verify"]:
-                return subprocess.CompletedProcess(befehl, 0 if signieren_ok else 1, "",
-                                                   "pdf2md.app: valid on disk" if signieren_ok else "invalid")
+                return subprocess.CompletedProcess(befehl, 0 if pruefen_ok else 1, "",
+                                                   "pdf2md.app: valid on disk" if pruefen_ok else
+                                                   "pdf2md.app: a sealed resource is missing or invalid")
             return subprocess.CompletedProcess(befehl, 0, "", "")   # PyInstaller
         monkeypatch.setattr(bauen.subprocess, "run", laufen)
         return aufrufe
@@ -369,7 +374,8 @@ class TestMacApp:
         assert "Dokumente" in info["NSDocumentsFolderUsageDescription"]
         assert info["CFBundleIdentifier"] == "io.github.s4ltc.pdf2md" and info["CFBundleExecutable"] == "pdf2md"
         assert aufrufe == [["codesign", "--force", "--deep", "--sign", "-", str(app)],
-                           ["codesign", "--verify", "--deep", "--strict", "--verbose=2", str(app)]]
+                           ["codesign", "--verify", "--deep", "--strict", "--all-architectures", "--verbose=2",
+                            str(app)]]
         assert bericht["macos_minos"] == "13.3" and bericht["macos_minos_dateien"] == ["Contents/MacOS/pdf2md"]
         assert bericht["signiert"] and bericht["signatur_gueltig"] and "valid on disk" in bericht["codesign"]
         assert bericht["info_plist"]["LSMinimumSystemVersion"] == "13.3"
@@ -397,6 +403,17 @@ class TestMacApp:
         assert bauen.bauen(app.parent) == 1
         bericht = json.loads((tmp_path / "aufgeraeumt.json").read_text(encoding="utf-8"))
         assert not bericht["signiert"] and "not signed" in bericht["codesign"]
+
+    def test_pruefung_misslingt_bauen_scheitert(self, app, tmp_path, monkeypatch, capsys):
+        """Signieren gelingt, die strenge Pruefung (--verify --deep --strict --all-architectures) nicht: frueher nur
+        eine Notiz in aufgeraeumt.json und Rueckgabe 0, das Paket waere trotz ungueltiger Signatur entstanden."""
+        monkeypatch.setattr(bauen, "WURZEL", tmp_path)
+        aufrufe = self.codesign_nachbau(monkeypatch, app, signieren_ok=True, pruefen_ok=False)
+        assert bauen.bauen(app.parent) == 1
+        assert "--all-architectures" in aufrufe[-1] and aufrufe[-1][:2] == ["codesign", "--verify"]
+        bericht = json.loads((tmp_path / "aufgeraeumt.json").read_text(encoding="utf-8"))
+        assert bericht["signiert"] and not bericht["signatur_gueltig"] and "sealed resource" in bericht["codesign"]
+        assert "Pruefen" in capsys.readouterr().err
 
     def test_windows_ohne_nachbearbeitung(self, system, tmp_path, monkeypatch):
         system("win32")
@@ -489,6 +506,270 @@ def test_fstring_pruefung_erkennt():
     assert fstring_neue_syntax("x = f\"{'a'}\"\n") == []
     assert fstring_neue_syntax("x = f'{\"a\"}'\n") == []
     assert fstring_neue_syntax("d = {}\nx = f\"{d[\"a\"]}\"\n") == ['Zeile 2: x = f"{d["a"]}"']
+
+
+# Job "distributionen" in bauen.yml, in bash nachgestellt: die run-Skripte laufen wie auf GitHub (bash --noprofile
+# --norc -eo pipefail, Umgebung aus env und GITHUB_ENV, Schritte nach einem Fehlschlag nur mit if: always(),
+# continue-on-error). Nachgebildet sind nur apt-get, dnf, rpm, ldd und python3 starttest (hinweise laeuft echt); im
+# PATH stehen ausser ihnen nur Verweise auf die Grundwerkzeuge (WERKZEUGE_ECHT), so laesst sich auch ein Container
+# ohne ldd nachstellen. Der Nachbau von Qt verlangt libxcb-cursor.so.0 wie docs/LIESMICH.txt. Unter Windows Git Bash.
+BAUEN_YML = WURZEL / ".github" / "workflows" / "bauen.yml"
+WERKZEUGE_ECHT = ("bash", "cat", "grep", "mkdir", "rm", "sed", "sleep", "sort", "tail", "tar", "touch", "xz")
+CURSOR_PAKETE = ("libxcb-cursor0", "xcb-util-cursor")   # liefern libxcb-cursor.so.0 (Debian/Ubuntu bzw. Fedora)
+NACHBAU = {
+    "apt-get": r'''#!/bin/sh
+echo "apt-get $*" >> "$SIM/aufrufe.log"
+[ "$1" = update ] && exit 0
+for p in "$@"; do                    # wie apt-get: ein unbekannter Name, und gar nichts wird installiert
+  case "$p" in -*|install) continue ;; esac
+  if grep -qx -- "$p" "$SIM/unbekannt.txt"; then echo "E: Unable to locate package $p" >&2; exit 100; fi
+done
+for p in "$@"; do case "$p" in -*|install) ;; *) touch "$SIM/installiert/$p" ;; esac; done
+''',
+    "dnf": r'''#!/bin/sh
+echo "dnf $*" >> "$SIM/aufrufe.log"
+case " $* " in *" --skip-unavailable "*) ueberspringen=ja ;; *) ueberspringen=nein ;; esac
+for p in "$@"; do
+  case "$p" in -*|install) continue ;; esac
+  if grep -qx -- "$p" "$SIM/unbekannt.txt"; then
+    echo "No match for argument: $p" >&2
+    [ "$ueberspringen" = ja ] || exit 1
+  fi
+done
+for p in "$@"; do
+  case "$p" in -*|install) continue ;; esac
+  grep -qx -- "$p" "$SIM/unbekannt.txt" || touch "$SIM/installiert/$p"
+done
+''',
+    "rpm": r'''#!/bin/sh
+for p in "$@"; do name="$p"; done
+[ -e "$SIM/installiert/$name" ] && exit 0
+echo "no package provides $name"
+exit 1
+''',
+    "ldd": r'''#!/bin/sh
+case "$1" in
+  *libqxcb.so) [ -e "$SIM/installiert/libxcb-cursor0" ] || [ -e "$SIM/installiert/xcb-util-cursor" ] ||
+               printf '\tlibxcb-cursor.so.0 => not found\n' ;;
+esac
+printf '\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f0000000000)\n'
+''',
+    "python3": r'''#!/bin/sh
+if [ "$2" = starttest ]; then
+  echo "starttest $3" >> "$SIM/aufrufe.log"
+  ok=false
+  if [ -e "$SIM/installiert/libxcb-cursor0" ] || [ -e "$SIM/installiert/xcb-util-cursor" ]; then ok=true; fi
+  printf '{"ok": %s, "gui": "qt"}' "$ok" > starttest.json
+  [ "$ok" = true ]
+  exit
+fi
+exec "$ECHTES_PYTHON" "$@"
+''',
+}
+
+
+def git_bash() -> str | None:
+    """bash fuer die Shell-Teile des Workflows; unter Windows die von Git (System32\\bash.exe waere WSL)."""
+    if sys.platform != "win32":
+        return shutil.which("bash")
+    git = shutil.which("git")
+    kandidaten = ([Path(git).resolve().parent.parent / "bin" / "bash.exe"] if git else []) + [
+        Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"]
+    return next((str(k) for k in kandidaten if k.is_file()), None)
+
+
+def bash_pfad(pfad: Path) -> str:
+    """Pfad, wie bash ihn versteht (Git Bash: /c/...)."""
+    pfad = Path(pfad).resolve()
+    return "/" + pfad.drive[0].lower() + pfad.as_posix()[2:] if sys.platform == "win32" else str(pfad)
+
+
+def skript(pfad: Path, text: str) -> None:
+    pfad.write_text(text, encoding="utf-8", newline="\n")    # bash verschluckt sich an CRLF
+    pfad.chmod(0o755)
+
+
+def linux_paket(ziel: Path) -> None:
+    """Das Linux-Archiv wie aus dem Build-Job (Inhalt erfunden): Starter, Qt-Plugin xcb, Qt WebEngine."""
+    ziel.parent.mkdir(parents=True)
+    with tarfile.open(ziel, "w:xz") as tar:
+        for name in ("pdf2md", "_internal/PySide6/Qt/plugins/platforms/libqxcb.so",
+                     "_internal/PySide6/Qt/lib/libQt6WebEngineCore.so.6"):
+            info = tarfile.TarInfo(f"pdf2md-probe-linux-x86_64/pdf2md/{name}")
+            info.size, info.mode = len(ELF), 0o755
+            tar.addfile(info, io.BytesIO(ELF))
+
+
+@pytest.fixture
+def distributionen():
+    yaml = pytest.importorskip("yaml", reason="braucht PyYAML")
+    return yaml.safe_load(BAUEN_YML.read_text(encoding="utf-8"))["jobs"]["distributionen"]
+
+
+def eintrag(job: dict, distro: str, **dazu) -> dict:
+    """Matrix-Eintrag einer Distribution, dazu je Liste weitere (erfundene) Paketnamen."""
+    gefunden = next(e for e in job["strategy"]["matrix"]["include"] if e["distro"] == distro)
+    return {k: (f"{v} {dazu[k]}" if k in dazu else v) for k, v in gefunden.items()}
+
+
+def job_nachstellen(job: dict, matrix: dict, arbeit: Path, unbekannt=(), mit_ldd=True) -> dict:
+    """Spielt die Schritte des Jobs fuer einen Matrix-Eintrag durch. unbekannt: Paketnamen, die apt-get/dnf nicht
+    kennen; mit_ldd=False: Container ohne ldd."""
+    bash = git_bash()
+    if not bash:
+        pytest.skip("braucht bash (unter Windows Git Bash)")
+    sim, ws = arbeit / "sim", arbeit / "ws"
+    for ordner in (sim / "bin", sim / "installiert", ws):
+        ordner.mkdir(parents=True)
+    (sim / "unbekannt.txt").write_text("".join(f"{p}\n" for p in unbekannt), encoding="utf-8", newline="\n")
+    (sim / "github_env").write_text("", encoding="utf-8")
+    echt = subprocess.run([bash, "--noprofile", "--norc", "-c", "command -v " + " ".join(WERKZEUGE_ECHT)],
+                          capture_output=True, text=True).stdout.split()
+    if len(echt) != len(WERKZEUGE_ECHT):
+        pytest.skip(f"Grundwerkzeuge fehlen in bash: {echt}")
+    for name, ziel in zip(WERKZEUGE_ECHT, echt):
+        skript(sim / "bin" / name, f'#!/bin/sh\nexec "{ziel}" "$@"\n')
+    for name, text in NACHBAU.items():
+        if name != "ldd" or mit_ldd:
+            skript(sim / "bin" / name, text)
+    umgebung = {"PATH": bash_pfad(sim / "bin"), "SIM": bash_pfad(sim), "GITHUB_ENV": bash_pfad(sim / "github_env"),
+                "ECHTES_PYTHON": bash_pfad(Path(sys.executable))}
+    for name, wert in job["env"].items():
+        umgebung[name] = re.sub(r"\$\{\{\s*matrix\.(\w+)\s*\}\}", lambda m: matrix[m.group(1)], str(wert))
+        assert "${{" not in umgebung[name], name
+    assert job["defaults"]["run"]["shell"] == "bash"
+    ausgabe, schritte, gescheitert = [], [], False
+    for nummer, schritt in enumerate(job["steps"]):
+        name = schritt.get("name") or schritt["uses"]
+        if gescheitert and "always()" not in str(schritt.get("if", "")):
+            schritte.append((name, "uebersprungen"))
+            continue
+        assert set(schritt.get("if", "always()").split()) == {"always()"}, schritt   # sonst hier nicht nachgestellt
+        if schritt.get("uses", "").startswith("actions/checkout@"):
+            (ws / "werkzeuge").mkdir()
+            shutil.copy2(WURZEL / "werkzeuge" / "bauen.py", ws / "werkzeuge" / "bauen.py")
+        elif schritt.get("uses", "").startswith("actions/download-artifact@"):
+            linux_paket(ws / schritt["with"]["path"] / "pdf2md-probe-linux-x86_64.tar.xz")
+        else:
+            assert "${{" not in schritt["run"], name                  # Skripte lesen nur Umgebungsvariablen
+            datei = sim / f"schritt{nummer}.sh"
+            skript(datei, "".join(f"export {k}={shlex.quote(v)}\n" for k, v in umgebung.items())
+                   + "unset DISPLAY\n" + schritt["run"])
+            lauf = subprocess.run([bash, "--noprofile", "--norc", "-eo", "pipefail", bash_pfad(datei)], cwd=ws,
+                                  capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
+            ausgabe.append(lauf.stdout + lauf.stderr)
+            for zeile in (sim / "github_env").read_text(encoding="utf-8").splitlines():
+                schluessel, _, wert = zeile.partition("=")
+                umgebung[schluessel] = wert
+            if lauf.returncode != 0 and not schritt.get("continue-on-error"):
+                gescheitert = True
+            schritte.append((name, lauf.returncode))
+            continue
+        schritte.append((name, 0))
+    aufrufe = sim / "aufrufe.log"
+    return {"ausgabe": "\n".join(ausgabe), "schritte": schritte, "gescheitert": gescheitert, "ws": ws,
+            "installiert": {p.name for p in (sim / "installiert").iterdir()},
+            "aufrufe": aufrufe.read_text(encoding="utf-8").splitlines() if aufrufe.exists() else []}
+
+
+def stufen_ergebnisse(ausgabe: str, distro: str) -> list[tuple[str, str]]:
+    return re.findall(rf"::notice title=Start-Test linux {re.escape(distro)} \(([^)]*)\)::(\S+)", ausgabe)
+
+
+STUFEN = ["Grundstock", "Grundstock + Paket aus LIESMICH", "mit allen Qt-Paketen"]
+
+
+class TestDistributionen:
+    def test_aufbau(self, distributionen):
+        """Werkzeuge im ersten Schritt ohne continue-on-error, Bibliotheken erst in den drei Stufen."""
+        schritte = distributionen["steps"]
+        assert schritte[0]["name"].startswith("Werkzeuge") and "continue-on-error" not in schritte[0]
+        assert "$WERKZEUGE" in schritte[0]["run"] and "$GRUNDSTOCK" not in schritte[0]["run"]
+        stufen = [s for s in schritte if s.get("name", "").startswith("Stufe ")]
+        assert [s["run"] for s in stufen] == ["bash stufe.sh 1 $GRUNDSTOCK", "bash stufe.sh 2 $LIESMICH",
+                                              "bash stufe.sh 3 $QT"]
+        assert all(s.get("continue-on-error") for s in stufen)
+        assert [distributionen["env"][f"STUFE_{n}"] for n in (1, 2, 3)] == STUFEN
+        for e in distributionen["strategy"]["matrix"]["include"]:
+            werkzeuge = e["werkzeuge"].split()
+            assert {"python3", "tar", "util-linux"} <= set(werkzeuge), e["distro"]
+            assert any("xvfb" in w.lower() for w in werkzeuge) and any("xauth" in w for w in werkzeuge)
+            assert any(w.startswith("xz") for w in werkzeuge)
+            assert not set(werkzeuge) & set((e["grundstock"] + " " + e["liesmich"] + " " + e["qt"]).split())
+
+    def test_liesmich_paket_wie_in_docs(self, distributionen):
+        """Stufe 2 installiert genau das Paket, das docs/LIESMICH.txt Nutzern nennt, und erst dort."""
+        liesmich = (WURZEL / "docs" / "LIESMICH.txt").read_text(encoding="utf-8")
+        for e in distributionen["strategy"]["matrix"]["include"]:
+            assert e["liesmich"] in CURSOR_PAKETE and e["liesmich"] in liesmich, e["distro"]
+            assert e["liesmich"] == {"apt": "libxcb-cursor0", "dnf": "xcb-util-cursor"}[e["verwaltung"]]
+            assert e["liesmich"] not in (e["werkzeuge"] + " " + e["grundstock"] + " " + e["qt"]).split()
+
+    @pytest.mark.langsam                                 # je Nachbau einige Sekunden (viele kleine Prozesse)
+    def test_unbekanntes_paket_kostet_nur_dieses(self, distributionen, tmp_path):
+        """Frueher installierte apt-get die ganze Liste oder nichts: ein umbenanntes Paket (hier erfunden) verhinderte
+        alles, auch python3 und xvfb, und der Job mass nichts. Jetzt fehlt nur dieses eine, mit Warnung."""
+        matrix = eintrag(distributionen, "ubuntu-24.04", grundstock="libgibtsnicht0")
+        lauf = job_nachstellen(distributionen, matrix, tmp_path, unbekannt=["libgibtsnicht0"])
+        assert not lauf["gescheitert"], lauf["schritte"]
+        assert ("::warning title=Paket fehlt linux ubuntu-24.04::libgibtsnicht0 (Grundstock): E: Unable to locate "
+                "package libgibtsnicht0") in lauf["ausgabe"]
+        alle = set((matrix["werkzeuge"] + " " + matrix["grundstock"] + " " + matrix["liesmich"] + " "
+                    + matrix["qt"]).split())
+        assert lauf["installiert"] == alle - {"libgibtsnicht0"}
+        assert lauf["ausgabe"].count("::warning title=Paket fehlt") == 1
+
+    @pytest.mark.langsam
+    def test_drei_stufen_je_mit_ldd_und_start_test(self, distributionen, tmp_path):
+        """Grundstock allein reicht nicht (libxcb-cursor fehlt), mit dem Paket aus LIESMICH startet das Programm."""
+        lauf = job_nachstellen(distributionen, eintrag(distributionen, "debian-12"), tmp_path)
+        assert stufen_ergebnisse(lauf["ausgabe"], "debian-12") == [
+            ("Grundstock", "FEHLER"), ("Grundstock + Paket aus LIESMICH", "OK"), ("mit allen Qt-Paketen", "OK")]
+        ordner = "entpackt/pdf2md-probe-linux-x86_64"
+        assert [a for a in lauf["aufrufe"] if a.startswith("starttest")] == [f"starttest {ordner}"] * 3
+        assert ("::notice title=Fehlende Bibliotheken linux debian-12::Grundstock: %0Alibqxcb.so: libxcb-cursor.so.0 "
+                "=> not found%0A%0AGrundstock + Paket aus LIESMICH: keine%0A%0Amit allen Qt-Paketen: keine"
+                ) in lauf["ausgabe"]
+        assert "Paket fehlt" not in lauf["ausgabe"] and "nicht gelaufen" not in lauf["ausgabe"]
+        # jede Stufe installiert nur ihre Pakete, die Werkzeuge kamen vorher in einem Aufruf
+        apt = [a for a in lauf["aufrufe"] if a.startswith("apt-get install")]
+        assert apt[0].endswith(" " + eintrag(distributionen, "debian-12")["werkzeuge"])
+        assert len(apt) == 1 + sum(len(eintrag(distributionen, "debian-12")[k].split())
+                                   for k in ("grundstock", "liesmich", "qt"))
+
+    @pytest.mark.langsam
+    def test_fedora_mit_skip_unavailable(self, distributionen, tmp_path):
+        """Fedora: Bibliotheken per dnf --skip-unavailable, was fehlt, meldet rpm; die Werkzeuge ohne den Schalter."""
+        matrix = eintrag(distributionen, "fedora-41", qt="libgibtsnicht0")
+        lauf = job_nachstellen(distributionen, matrix, tmp_path, unbekannt=["libgibtsnicht0"])
+        dnf = [a for a in lauf["aufrufe"] if a.startswith("dnf ")]
+        assert "--skip-unavailable" not in dnf[0] and dnf[0].endswith(" " + matrix["werkzeuge"])   # Werkzeuge
+        assert len(dnf) == 4 and all("--skip-unavailable" in a for a in dnf[1:])
+        assert ("::warning title=Paket fehlt linux fedora-41::libgibtsnicht0 (mit allen Qt-Paketen): nicht "
+                "installiert") in lauf["ausgabe"]
+        assert set(matrix["qt"].split()) - lauf["installiert"] == {"libgibtsnicht0"}
+        assert stufen_ergebnisse(lauf["ausgabe"], "fedora-41") == [
+            ("Grundstock", "FEHLER"), ("Grundstock + Paket aus LIESMICH", "OK"), ("mit allen Qt-Paketen", "OK")]
+
+    def test_ohne_werkzeuge_scheitert_der_job(self, distributionen, tmp_path):
+        """Fehlt ein Werkzeug (hier xvfb), scheitert der Job sichtbar; die Hinweise sagen, dass nichts lief."""
+        lauf = job_nachstellen(distributionen, eintrag(distributionen, "ubuntu-24.04"), tmp_path, unbekannt=["xvfb"])
+        assert lauf["gescheitert"] and lauf["schritte"][0][1] != 0
+        assert not [a for a in lauf["aufrufe"] if a.startswith("starttest")]
+        assert stufen_ergebnisse(lauf["ausgabe"], "ubuntu-24.04") == [(s, "nicht") for s in STUFEN]   # gelaufen
+        assert ("Fehlende Bibliotheken linux ubuntu-24.04::Grundstock: nicht geprüft%0A%0AGrundstock + Paket aus "
+                "LIESMICH: nicht geprüft%0A%0Amit allen Qt-Paketen: nicht geprüft") in lauf["ausgabe"]
+
+    @pytest.mark.langsam
+    def test_ldd_fehlt_nicht_in_der_liste(self, distributionen, tmp_path):
+        """Ohne ldd: eine Warnung am Lauf, die Liste sagt "nicht geprüft" (frueher stand "ldd fehlt im Container"
+        als vermeintlich fehlende Bibliothek darin)."""
+        lauf = job_nachstellen(distributionen, eintrag(distributionen, "ubuntu-24.04"), tmp_path, mit_ldd=False)
+        assert lauf["ausgabe"].count("::warning title=ldd fehlt linux ubuntu-24.04::") == 1
+        assert not list(lauf["ws"].glob("fehlend-*.txt"))
+        hinweis = next(z for z in lauf["ausgabe"].splitlines() if "title=Fehlende Bibliotheken" in z)
+        assert hinweis.count("nicht geprüft") == 3 and "ldd" not in hinweis
+        assert len(stufen_ergebnisse(lauf["ausgabe"], "ubuntu-24.04")) == 3
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux") or not (shutil.which("objdump") and shutil.which("readelf")),

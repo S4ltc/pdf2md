@@ -80,7 +80,12 @@ def bauen(ausgabe: Path) -> int:
         return code
     if mac():
         bericht = app_nachbearbeiten(ausgabe)
-        if not bericht["signiert"]:                    # Info.plist geaendert, alte Signatur ungueltig: startet nicht
+        # Info.plist geaendert, alte Signatur ungueltig: ohne neue Signatur startet die App nicht. Auch eine Signatur,
+        # die die strenge Pruefung nicht besteht (eingebettete Teile, bei Universal-Dateien jede Architektur), darf
+        # nicht ins Paket: frueher stand das nur als Notiz in aufgeraeumt.json, der Bau blieb gruen
+        if not (bericht["signiert"] and bericht["signatur_gueltig"]):
+            print("codesign: " + ("Signieren" if not bericht["signiert"] else "Pruefen (--verify --deep --strict)")
+                  + " fehlgeschlagen, der Bau gilt als gescheitert", file=sys.stderr)
             code = 1
     else:
         gespart, entfernt = aufraeumen(ausgabe)
@@ -102,7 +107,9 @@ def app_nachbearbeiten(ausgabe: Path) -> dict:
     wie PyInstaller). Bericht fuer aufgeraeumt.json. LSMinimumSystemVersion = gemessenes Minimum aller Mach-O-Dateien
     (mindestversionen): auf zu alten Systemen meldet macOS dann klar, dass die App dort nicht laeuft, statt dass sie
     still abstuerzt. NSDocumentsFolderUsageDescription erklaert die Rueckfrage zum Ordner Dokumente. Die Signatur
-    deckt die Info.plist ab, deshalb danach neu signieren und streng pruefen (codesign --verify --deep --strict)."""
+    deckt die Info.plist ab, deshalb danach neu signieren und streng pruefen (codesign --verify --deep --strict
+    --all-architectures: bei Universal-Dateien sonst nur die Architektur des Build-Rechners). signiert und
+    signatur_gueltig muessen beide stimmen, sonst scheitert bauen()."""
     import plistlib                                    # nur hier gebraucht
     app = ausgabe / "pdf2md.app"
     bericht = mindestversionen(app)
@@ -121,7 +128,8 @@ def app_nachbearbeiten(ausgabe: Path) -> dict:
     else:
         bericht["info_plist"] = "fehlt"
     signiert, text_signieren = _codesign(["--force", "--deep", "--sign", "-", str(app)])
-    gueltig, text_pruefen = _codesign(["--verify", "--deep", "--strict", "--verbose=2", str(app)])
+    gueltig, text_pruefen = _codesign(["--verify", "--deep", "--strict", "--all-architectures", "--verbose=2",
+                                       str(app)])
     bericht.update(signiert=signiert, signatur_gueltig=gueltig,
                    codesign=(text_signieren + "\n" + text_pruefen).strip()[-1500:])
     return bericht
