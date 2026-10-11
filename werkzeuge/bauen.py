@@ -419,21 +419,35 @@ def drittlizenzen(ziel: Path) -> None:
 TRENNER = re.compile(r"^={79}$", re.MULTILINE)      # wie in drittlizenzen.py
 LGPL3 = re.compile(r"GNU LESSER GENERAL PUBLIC LICENSE\s+Version 3", re.IGNORECASE)
 CHROMIUM = re.compile(r"Copyright[^\n]*The Chromium Authors")
+# Volltext der Lizenzen von Chromium und der Drittbestandteile von Qt (nur Linux): erzeugt werkzeuge/chromium_lizenzen.py
+# in bauen.yml vor dem Paket im Projektordner; Kopfzeilen fuer den Paketbericht
+CHROMIUM_LIZENZEN = WURZEL / "CHROMIUM-LIZENZEN.txt"
+CHROMIUM_ANZAHL = re.compile(r"^Bestandteile: (\d+)", re.MULTILINE)
+CHROMIUM_OHNE_TEXT = re.compile(r"^Ohne Lizenztext: (\d+)", re.MULTILINE)
+CHROMIUM_QUELLE = re.compile(r"^Quelle Chromium: (.+)$", re.MULTILINE)
 
 
 def lizenzbericht(ordner: Path) -> dict:
-    """Bericht ueber DRITTLIZENZEN.txt, damit sich ein Paket ohne Download pruefen laesst (Hinweis am Lauf): Eintraege
-    der Uebersicht, Pakete ohne eigenen Lizenztext, ob der volle Text der LGPL 3 dabei ist (Qt unter Linux) und wie
-    lang die Texte der Qt-Pakete sind. Ein blosses Vorkommen von "LGPL" reicht nicht: die Python-Lizenz nennt sie
-    schon (xz)."""
+    """Bericht ueber DRITTLIZENZEN.txt (und unter Linux CHROMIUM-LIZENZEN.txt), damit sich ein Paket ohne Download
+    pruefen laesst (Hinweis am Lauf): Eintraege der Uebersicht, Pakete ohne eigenen Lizenztext, ob der volle Text der
+    LGPL 3 dabei ist (Qt unter Linux), ob der von Chromium dabei ist (in einer der beiden Dateien), wie viele
+    Bestandteile CHROMIUM-LIZENZEN.txt nennt und wie lang die Texte der Qt-Pakete sind. Ein blosses Vorkommen von
+    "LGPL" reicht nicht: die Python-Lizenz nennt sie schon (xz)."""
     text = (ordner / "DRITTLIZENZEN.txt").read_text(encoding="utf-8", errors="replace")
+    chromium = ordner / CHROMIUM_LIZENZEN.name
+    chromium_text = chromium.read_text(encoding="utf-8", errors="replace") if chromium.is_file() else ""
+    anzahl, ohne_text = CHROMIUM_ANZAHL.search(chromium_text), CHROMIUM_OHNE_TEXT.search(chromium_text)
+    quelle = CHROMIUM_QUELLE.search(chromium_text)
     teile = TRENNER.split(text)                        # Uebersicht, Kopf 1, Inhalt 1, Kopf 2, Inhalt 2, ...
     abschnitte = {teile[i].strip(): teile[i + 1] for i in range(1, len(teile) - 1, 2)}
     return {"eintraege": sum(1 for z in teile[0].splitlines() if " – " in z),
             "ohne_lizenztext": [k for k, inhalt in abschnitte.items() if "(kein Lizenztext im Paket" in inhalt],
             "nur_standardtext": [k for k, inhalt in abschnitte.items() if "--- Standardtext" in inhalt],
             "lgpl3_volltext": bool(LGPL3.search(text)),
-            "chromium_volltext": bool(CHROMIUM.search(text)),
+            "chromium_volltext": bool(CHROMIUM.search(text) or CHROMIUM.search(chromium_text)),
+            "chromium_bestandteile": int(anzahl.group(1)) if anzahl else 0,
+            "chromium_ohne_lizenztext": int(ohne_text.group(1)) if ohne_text else 0,
+            "chromium_quelle": quelle.group(1).strip() if quelle else None,
             "qt_lizenztext_zeichen": {k: len(inhalt.strip()) for k, inhalt in abschnitte.items()
                                       if k.lower().startswith(("pyside6", "shiboken6"))}}
 
@@ -576,7 +590,15 @@ def groessenbericht(ordner: Path, anzahl: int = 50) -> dict:
 
 
 def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Path:
-    """pdf2md-TAG-NAME.zip (Windows, macOS) bzw. .tar.xz (Linux) mit Programm, Lizenz, Fremdlizenzen und LIESMICH."""
+    """pdf2md-TAG-NAME.zip (Windows, macOS) bzw. .tar.xz (Linux) mit Programm, Lizenz, Fremdlizenzen und LIESMICH.
+    Unter Linux kommt CHROMIUM-LIZENZEN.txt aus dem Projektordner dazu; steckt Qt WebEngine (also Chromium) im
+    Programmordner und fehlt die Datei, bricht das Paket ab (vor dem Kopieren), statt Chromium ohne seine
+    Lizenztexte weiterzugeben."""
+    linux = not (windows() or mac())
+    if linux and not CHROMIUM_LIZENZEN.is_file() and any((ausgabe / "pdf2md").rglob("libQt6WebEngineCore.so*")):
+        raise SystemExit(f"{CHROMIUM_LIZENZEN} fehlt: Qt WebEngine enthält Chromium, ohne dessen Lizenztexte wird "
+                         f"kein Paket gebaut. Erzeugen mit: python werkzeuge/chromium_lizenzen.py "
+                         f"{CHROMIUM_LIZENZEN.name} (bauen.yml macht das vor dem Paket)")
     ordner = Path(tempfile.mkdtemp()) / "pdf2md"        # macOS: oberster Ordner im ZIP (ditto --keepParent)
     ordner.mkdir()
     if windows():
@@ -585,6 +607,8 @@ def paket(name: str, tag: str, ausgabe: Path, ziel_ordner: Path = WURZEL) -> Pat
         shutil.copytree(ausgabe / "pdf2md.app", ordner / "pdf2md.app", symlinks=True)
     else:
         shutil.copytree(ausgabe / "pdf2md", ordner / "pdf2md", symlinks=True)
+        if CHROMIUM_LIZENZEN.is_file():
+            shutil.copy2(CHROMIUM_LIZENZEN, ordner / CHROMIUM_LIZENZEN.name)
     shutil.copy2(WURZEL / "LICENSE", ordner / "LICENSE.txt")
     shutil.copy2(WURZEL / "docs" / "LIESMICH.txt", ordner / "LIESMICH.txt")
     drittlizenzen(ordner / "DRITTLIZENZEN.txt")

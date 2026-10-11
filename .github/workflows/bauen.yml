@@ -64,6 +64,38 @@ jobs:
       - name: Start-Test
         run: python werkzeuge/bauen.py starttest dist
 
+      # Linux: Lizenztexte von Chromium (in Qt WebEngine) und der Drittbestandteile von Qt als Volltext, aus den
+      # Quellen genau der installierten Fassungen (werkzeuge/chromium_lizenzen.py). Das Erzeugen liest ein rund
+      # 550 MB grosses Quellarchiv (oder den Chromium-Baum von GitHub); deshalb im Cache, Schluessel = Versionen und
+      # Stand des Werkzeugs. Schlaegt es fehl, entsteht bewusst kein Linux-Paket (bauen.paket bricht ohne die Datei ab).
+      - name: Versionen für die Chromium-Lizenzen
+        id: qt
+        if: runner.os == 'Linux'
+        shell: bash
+        run: python werkzeuge/chromium_lizenzen.py --versionen | tee -a "$GITHUB_OUTPUT"
+
+      - name: Chromium-Lizenzen aus dem Cache
+        id: chromium_cache
+        if: runner.os == 'Linux'
+        uses: actions/cache/restore@v6
+        with:
+          path: CHROMIUM-LIZENZEN.txt
+          key: chromium-lizenzen-qt${{ steps.qt.outputs.qt }}-we${{ steps.qt.outputs.webengine }}-${{ steps.qt.outputs.chromium }}-${{ steps.qt.outputs.sicherheit }}-icu${{ steps.qt.outputs.icu }}-${{ hashFiles('werkzeuge/chromium_lizenzen.py') }}
+
+      - name: Chromium-Lizenzen erzeugen
+        if: runner.os == 'Linux' && steps.chromium_cache.outputs.cache-hit != 'true'
+        timeout-minutes: 60
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python werkzeuge/chromium_lizenzen.py CHROMIUM-LIZENZEN.txt
+
+      - name: Chromium-Lizenzen in den Cache
+        if: runner.os == 'Linux' && steps.chromium_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: CHROMIUM-LIZENZEN.txt
+          key: ${{ steps.chromium_cache.outputs.cache-primary-key }}
+
       - name: Paket
         shell: bash
         run: python werkzeuge/bauen.py paket "${{ matrix.name }}" "$TAG" dist
