@@ -14,12 +14,18 @@ WURZEL = Path(__file__).resolve().parent.parent
 DEJAVU = WURZEL / "schriften" / "DejaVuSans.ttf"     # eingebettete Schrift wie in echten Buechern (Umlaute, ©, ³)
 
 AUTORIN = "Erika Muster"
-# Je Testdatei: Titel, Autor und Jahr, wie sie im Kopfblock stehen sollen, und Felder, die die Umwandlung dort
-# eintraegt (bauen.funktion_bewerten). Verschiedene Namen, damit Rueckgaengig beide .md neben ihr Original legt.
+KOLUMNENTITEL = "{autor}: {titel}"     # Kopfzeile der PDF ab Seite 2; ui_app.KOLUMNENTITEL zaehlt ihn im Text (Soll 0)
+# Je Testdatei, bewertet in bauen.funktion_bewerten: Titel, Autor und Jahr, wie sie im Kopfblock stehen sollen;
+# felder = Felder, die die Umwandlung dort eintraegt (im Quellstand nachgewiesen, ohne Netz: quellenangabe entsteht
+# dann aus Titel, Autor und Jahr); beginnt = Anfang eines Feldes (seitenzahlen steht auch ohne gefundene Seitenzahlen
+# da, dann mit "keine gedruckten Seitenzahlen gefunden"); kolumnentitel = die Datei hat einen, er darf nicht im Text
+# stehen. Verschiedene Namen, damit Rueckgaengig beide .md neben ihr Original legt.
 DATEIEN = {
     "beispielbuch.pdf": {"titel": "Beispielbuch", "autor": AUTORIN, "jahr": "2019",
-                         "felder": ("lesezeichen", "tabellen")},
-    "beispieldokument.docx": {"titel": "Beispieldokument", "autor": AUTORIN, "jahr": "2020", "felder": ()},
+                         "felder": ("lesezeichen", "tabellen", "seitenzahlen", "quellenangabe"),
+                         "beginnt": {"seitenzahlen": "gedruckte Seitenzahl für"}, "kolumnentitel": True},
+    "beispieldokument.docx": {"titel": "Beispieldokument", "autor": AUTORIN, "jahr": "2020",
+                              "felder": ("quellenangabe",)},
 }
 ABSATZ = ("Dieser Absatz ist frei erfunden und dient nur dem Funktionstest des gebauten Programms. Er ist lang genug, "
           "damit die Erkennung von Scans nicht anschlaegt und die Datei als Dokument mit Text gilt. ") * 3
@@ -38,7 +44,7 @@ def pdf_anlegen(pfad: Path) -> Path:
         def header(self):
             if self.page_no() > 1:                       # Kolumnentitel: wiederholt sich, faellt als Kopfzeile weg
                 self.set_font("DejaVu", size=8)
-                self.cell(0, 6, f"{angaben['autor']}: {angaben['titel']}", align="R", new_x="LMARGIN", new_y="NEXT")
+                self.cell(0, 6, KOLUMNENTITEL.format(**angaben), align="R", new_x="LMARGIN", new_y="NEXT")
                 self.ln(4)
 
         def footer(self):

@@ -260,8 +260,8 @@ def erwartung_aus_quellstand() -> dict:
 
 def funktion_bewerten(funktion: dict | None, erwartung: dict, dateien: dict) -> list[str]:
     """Abweichungen in Phase 2 des Start-Tests (leer = in Ordnung). funktion: Befunde von ui_app._funktionstest,
-    erwartung: erwartung_aus_quellstand(), dateien: Name -> Titel, Autor, Jahr und erwartete Kopfblock-Felder der
-    Testdateien (testdateien.DATEIEN). Alle Testdateien gehoeren nach Fertig."""
+    erwartung: erwartung_aus_quellstand(), dateien: Name -> Titel, Autor, Jahr, erwartete Kopfblock-Felder samt
+    Anfang und ob ein Kolumnentitel wegfallen muss (testdateien.DATEIEN). Alle Testdateien gehoeren nach Fertig."""
     if not funktion:
         return ["kein Ergebnis von Phase 2 (Programm vorher beendet oder Zeitlimit)"]
     abweichungen = [f"Ausnahme: {funktion['fehler']}"] if funktion.get("fehler") else []
@@ -297,6 +297,16 @@ def funktion_bewerten(funktion: dict | None, erwartung: dict, dateien: dict) -> 
         for feld in angaben.get("felder", ()):
             if not kopf.get(feld):
                 abweichungen.append(f"{name}: kein Feld {feld} im Kopfblock")
+        for feld, anfang in (angaben.get("beginnt") or {}).items():
+            if kopf.get(feld) and not str(kopf[feld]).startswith(anfang):
+                abweichungen.append(f"{name}: {feld} {kopf[feld]!r} statt {anfang!r} …")
+        if angaben.get("kolumnentitel"):
+            anzahl_kolumnentitel = kopf.get("kolumnentitel_im_text")
+            if anzahl_kolumnentitel is None:
+                abweichungen.append(f"{name}: Kolumnentitel im Text nicht gezählt")
+            elif anzahl_kolumnentitel:
+                abweichungen.append(f"{name}: Kolumnentitel {anzahl_kolumnentitel}-mal im Text statt 0 "
+                                    f"(Kopfzeile nicht entfernt)")
     if "protokoll" in funktion and funktion["protokoll"] != ["OK"] * anzahl:
         abweichungen.append(f"Protokoll {funktion['protokoll']} statt {['OK'] * anzahl}")
     if funktion.get("module_fehlen"):
@@ -328,6 +338,22 @@ def funktion_bewerten(funktion: dict | None, erwartung: dict, dateien: dict) -> 
     return abweichungen
 
 
+def ergebnis_lesen(ergebnis: Path) -> dict:
+    """Ergebnisdatei des Programms (ui_app._starttest). Fehlt sie oder ist sie kein JSON-Objekt (etwa halb
+    geschrieben von einem Programm, das das Zeitlimit beendet hat), gilt das wie kein Ergebnis; der Grund steht dann
+    unter ergebnisdatei."""
+    kein = {"ok": False, "fehler": "kein Ergebnis vom Programm"}
+    try:
+        daten = json.loads(ergebnis.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return kein
+    except (OSError, ValueError) as e:                 # json.JSONDecodeError und UnicodeDecodeError sind ValueError
+        return {**kein, "ergebnisdatei": f"{type(e).__name__}: {e}"[:300]}
+    if not isinstance(daten, dict):
+        return {**kein, "ergebnisdatei": f"kein JSON-Objekt: {type(daten).__name__}"}
+    return daten
+
+
 def starttest(ausgabe: Path, bericht: Path) -> int:
     """Startet das gebaute Programm mit PDF2MD_STARTTEST und wertet das Ergebnis aus. 0 = Oberflaeche hat sich
     gemeldet (Phase 1: Engine, Seite und Python-Schnittstelle laufen). Phase 2 (ui_app._funktionstest) wandelt die
@@ -351,8 +377,7 @@ def starttest(ausgabe: Path, bericht: Path) -> int:
             ausgabe_text, code = f"Zeitlimit {STARTTEST_ZEIT} s ueberschritten", None
         except OSError as e:
             ausgabe_text, code = f"Start nicht moeglich: {e}", None
-        daten = (json.loads(ergebnis.read_text(encoding="utf-8")) if ergebnis.exists()
-                 else {"ok": False, "fehler": "kein Ergebnis vom Programm"})
+        daten = ergebnis_lesen(ergebnis)
     # Fehlerzeilen von Chromium (Qt WebEngine, Format "[pid:tid:zeit:ERROR:datei]"): beenden den Start nicht, sollen
     # aber ueber mehrere Laeufe vergleichbar sein (z.B. "Failed to send GpuControl.CreateCommandBuffer" unter xvfb)
     daten.update(rueckgabe=code, ausgabe=ausgabe_text[-3000:],
@@ -615,10 +640,46 @@ def funktionstest_hinweis(d: dict) -> tuple[str, str]:
     return "warning", text[:HINWEIS_LAENGE]
 
 
+ZERTIFIKATE_AUFGABE = ("HTTPS findet im Paket keine Wurzelzertifikate: auf Systemen, die ihre Zertifikate nicht am "
+                       "Pfad des Build-Rechners haben, scheitern Crossref, DNB und die Update-Suche still. "
+                       "plattform.vorbereiten setzt SSL_CERT_FILE in der gebauten App auf certifi; pruefen, ob certifi "
+                       "(cacert.pem) im Paket liegt.")
+
+
+def zertifikate_hinweis(d: dict) -> str | None:
+    """Text der Warnung, wenn das Programm unter macOS oder Linux keine Zertifikatsdatei hatte (Phase 1 des
+    Start-Tests, ui_app._zertifikate_befund), sonst None. Windows nimmt den Zertifikatsspeicher des Systems."""
+    system = d.get("system")
+    if not system or system == "win32":               # ohne "system" kam kein Ergebnis vom Programm
+        return None
+    befund = d.get("zertifikate") or {}
+    if befund.get("vorhanden"):
+        return None
+    datei = befund.get("SSL_CERT_FILE")
+    if not befund:
+        stand = "Zertifikate nicht geprueft (kein Befund im Ergebnis des Programms)"
+    elif datei:
+        stand = f"SSL_CERT_FILE={datei}, die Datei fehlt"
+    else:
+        stand = "SSL_CERT_FILE nicht gesetzt"
+    return f"{stand}. {ZERTIFIKATE_AUFGABE}"
+
+
+def _hinweiszeilen(eintraege: list, art: str) -> list[str]:
+    """GitHub-Hinweise aus (titel, text, art) oder (titel, text); ohne eigene Art gilt `art`. Beide Formen, damit ein
+    Zweig, der noch 2-Tupel anhaengt, den Lauf nicht mit einem ValueError beim Entpacken abbricht."""
+    def maskiert(text: str) -> str:
+        return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    return [f"::{eigene[0] if eigene else art} title={maskiert(titel)}::{maskiert(text)}"
+            for titel, text, *eigene in eintraege]
+
+
 def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[str]:
     """Ergebnis von Start-Test und Paket als GitHub-Hinweise (::notice), ohne Anmeldung ueber die API lesbar. Bei
     einem Release (TAG gesetzt) zusaetzlich eine Warnung, solange Qt ohne Chromium-Lizenztexte im Paket steckt.
-    Phase 2 des Start-Tests (Funktionstest) steht direkt nach dem Start-Test, bei Abweichungen als Warnung."""
+    Direkt nach dem Start-Test: eine Warnung, wenn unter macOS/Linux die Zertifikatsdatei fehlt, und Phase 2 des
+    Start-Tests (Funktionstest), bei Abweichungen als Warnung. Eintraege: (titel, text, art), (titel, text) gilt
+    als notice bzw. in warnungen als warning."""
     tag = tag or os.environ.get("TAG", "probe")
     warnungen = []
     test = wurzel / "starttest.json"
@@ -627,6 +688,9 @@ def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[s
         kurz = {k: d.get(k) for k in ("gui", "angezeigt", "fehler", "rueckgabe", "chromium_fehler")}
         meldungen = [(f"Start-Test {name}", ("OK " if d.get("ok") else "FEHLER ") + json.dumps(kurz, ensure_ascii=False)
                       + "\n" + (d.get("ausgabe") or "")[-2500:], "notice")]
+        zertifikate = zertifikate_hinweis(d)
+        if zertifikate:
+            meldungen.append((f"Zertifikate {name}", zertifikate, "warning"))
         if "funktion_ok" in d:
             art, text = funktionstest_hinweis(d)
             meldungen.append((f"Funktionstest {name}", text, art))
@@ -642,10 +706,7 @@ def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[s
         bericht = json.loads((wurzel / "paket.json").read_text(encoding="utf-8"))
         if bericht.get("qt_lizenztext_zeichen") and not bericht.get("chromium_volltext"):
             warnungen.append((f"Chromium-Lizenzen {name}", CHROMIUM_AUFGABE))
-    def maskiert(text: str) -> str:
-        return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-    return ([f"::warning title={maskiert(titel)}::{maskiert(text)}" for titel, text in warnungen]
-            + [f"::{art} title={maskiert(titel)}::{maskiert(text)}" for titel, text, art in meldungen])
+    return _hinweiszeilen(warnungen, "warning") + _hinweiszeilen(meldungen, "notice")
 
 
 def main(argumente: list[str]) -> int:
