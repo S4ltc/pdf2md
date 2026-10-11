@@ -638,41 +638,67 @@ FUNKTIONSTEST_WARTEN = 240     # Sekunden fuer Phase 2 insgesamt (Umwandlung, Ru
 OPTIONALE_MODULE = ("formeln", "lesefolge", "zeichen", "normen", "tabellen", "formelsatz", "seitenzahlen",
                     "zitierdaten", "schriftbild", "einstellungen")
 KOPFFELDER = ("originaldatei", "titel", "autor", "jahr", "textquelle", "pruefen", "warnung", "einstellungen",
-              "lesezeichen", "tabellen")
+              "lesezeichen", "tabellen", "seitenzahlen", "quellenangabe")
+# Kolumnentitel der Test-PDF oben auf jeder Seite ab Seite 2 (werkzeuge/testdateien.py, gleiches Format): faellt er als
+# Kopfzeile nicht weg, steht er im Text; _kopffelder zaehlt ihn (Soll 0)
+KOLUMNENTITEL = "{autor}: {titel}"
 
 
 def _starttest(fenster, ziel: Path, api: Api | None = None) -> None:
     """Nur fuer den automatischen Start-Test beim Bauen (Umgebungsvariable PDF2MD_STARTTEST, kein Schalter fuer
     Nutzer). Phase 1: wartet, bis die Oberflaeche ihre Versionsnummer ueber die Python-Schnittstelle geholt und
-    angezeigt hat (Engine, Seite und Schnittstelle laufen). Phase 2 (_funktionstest) nur mit api und einem Ordner
-    testdateien neben ziel. Schreibt das Ergebnis nach ziel und schliesst das Fenster; das Ergebnis von Phase 1 steht
-    schon vor Phase 2 dort, damit es ein Zeitlimit in Phase 2 (bauen.py beendet das Programm) uebersteht."""
+    angezeigt hat (Engine, Seite und Schnittstelle laufen); ausserhalb von Windows haelt sie dazu fest, ob HTTPS
+    Wurzelzertifikate findet (_zertifikate_befund). Phase 2 (_funktionstest) nur mit api und einem Ordner testdateien
+    neben ziel. Schreibt das Ergebnis nach ziel und schliesst das Fenster, auch nach einem Fehler (sonst liefe das
+    Programm bis zum Zeitlimit von bauen.py weiter); das Ergebnis von Phase 1 steht schon vor Phase 2 dort, damit es
+    ein Zeitlimit in Phase 2 (bauen.py beendet das Programm) uebersteht."""
     ziel = Path(ziel)
-    ergebnis = {"ok": False, "version": aktualisierung.VERSION, "gui": plattform.gui(), "system": plattform.SYSTEM}
-    ende = time.time() + STARTTEST_WARTEN
-    while time.time() < ende:
-        try:
-            angezeigt = fenster.evaluate_js("(document.querySelector('#version') || {}).textContent || ''")
-        except Exception as e:                                # die Seite laedt noch oder die Engine hakt
-            angezeigt, ergebnis["fehler"] = None, repr(e)[:500]
-        if angezeigt == aktualisierung.VERSION:
-            ergebnis.update(ok=True, angezeigt=angezeigt)
-            ergebnis.pop("fehler", None)
-            break
-        time.sleep(STARTTEST_TAKT)
-    testordner = ziel.parent / FUNKTIONSTEST_ORDNER
-    if api is not None and testordner.is_dir():
-        def zwischenstand(bericht: dict) -> None:
-            # nach jedem Schritt: beendet bauen.py das Programm im Zeitlimit (etwa weil ein Unterprozess haengt),
-            # zeigt das Ergebnis, wie weit Phase 2 kam
-            ziel.write_text(json.dumps({**ergebnis, "funktion": bericht}, ensure_ascii=False), encoding="utf-8")
-        ziel.write_text(json.dumps(ergebnis, ensure_ascii=False), encoding="utf-8")
-        ergebnis["funktion"] = _funktionstest(api, sorted(p for p in testordner.iterdir() if p.is_file()),
-                                              zwischenstand)
-        api.abbrechen()                       # laeuft nach einem Zeitlimit noch ein Lauf, endet er nach der Datei
-        api._schliessen_erlaubt = True        # und haelt das Fenster nicht offen (_beim_schliessen)
-    ziel.write_text(json.dumps(ergebnis, ensure_ascii=False), encoding="utf-8")
-    fenster.destroy()
+    try:
+        ergebnis = {"ok": False, "version": aktualisierung.VERSION, "gui": plattform.gui(), "system": plattform.SYSTEM}
+        if not plattform.windows():
+            ergebnis["zertifikate"] = _zertifikate_befund()
+        ende = time.time() + STARTTEST_WARTEN
+        while time.time() < ende:
+            try:
+                angezeigt = fenster.evaluate_js("(document.querySelector('#version') || {}).textContent || ''")
+            except Exception as e:                            # die Seite laedt noch oder die Engine hakt
+                angezeigt, ergebnis["fehler"] = None, repr(e)[:500]
+            if angezeigt == aktualisierung.VERSION:
+                ergebnis.update(ok=True, angezeigt=angezeigt)
+                ergebnis.pop("fehler", None)
+                break
+            time.sleep(STARTTEST_TAKT)
+        testordner = ziel.parent / FUNKTIONSTEST_ORDNER
+        if api is not None and testordner.is_dir():
+            def zwischenstand(bericht: dict) -> None:
+                # nach jedem Schritt: beendet bauen.py das Programm im Zeitlimit (etwa weil ein Unterprozess haengt),
+                # zeigt das Ergebnis, wie weit Phase 2 kam
+                _ergebnis_schreiben(ziel, {**ergebnis, "funktion": bericht})
+            _ergebnis_schreiben(ziel, ergebnis)
+            ergebnis["funktion"] = _funktionstest(api, sorted(p for p in testordner.iterdir() if p.is_file()),
+                                                  zwischenstand)
+            api.abbrechen()                   # laeuft nach einem Zeitlimit noch ein Lauf, endet er nach der Datei
+            api._schliessen_erlaubt = True    # und haelt das Fenster nicht offen (_beim_schliessen)
+        _ergebnis_schreiben(ziel, ergebnis)
+    finally:
+        fenster.destroy()
+
+
+def _ergebnis_schreiben(ziel: Path, daten: dict) -> None:
+    """Ergebnis des Start-Tests atomar schreiben (Hilfsdatei, dann os.replace): beendet bauen.py das Programm im
+    Zeitlimit mitten im Schreiben, bleibt der vorige Stand lesbar statt einer halben Datei. default=str: ein
+    unerwarteter Wert im Bericht (etwa ein Path) darf das Ergebnis nicht verhindern."""
+    hilfsdatei = ziel.with_name(ziel.name + ".tmp")
+    hilfsdatei.write_text(json.dumps(daten, ensure_ascii=False, default=str), encoding="utf-8")
+    os.replace(hilfsdatei, ziel)
+
+
+def _zertifikate_befund() -> dict:
+    """Ob urllib (Crossref, DNB, Update-Suche) Wurzelzertifikate findet: plattform.vorbereiten setzt SSL_CERT_FILE in
+    der gebauten App ausserhalb von Windows auf die Datei von certifi im Paket. Fehlt sie, scheitert dort jede
+    HTTPS-Anfrage still (bauen.hinweise warnt dann)."""
+    datei = os.environ.get("SSL_CERT_FILE")
+    return {"SSL_CERT_FILE": datei, "vorhanden": bool(datei) and os.path.isfile(datei)}
 
 
 def _funktionstest(api: Api, pfade: list[Path], zwischenstand=None) -> dict:
@@ -747,8 +773,14 @@ def _ablage_inhalt() -> dict:
 
 
 def _kopffelder(md: Path) -> dict:
-    werte, _ = ablage.kopf_lesen_datei(md)
-    return {"ordner": md.parent.name, **{feld: (werte or {}).get(feld) for feld in KOPFFELDER}}
+    """Felder des Kopfblocks und, wie oft der Kolumnentitel (KOLUMNENTITEL aus Autor und Titel) im Text nach dem
+    Kopfblock steht; None ohne Autor oder Titel."""
+    werte, text = ablage.kopf_lesen_datei(md, voll=True)
+    werte = werte or {}
+    kolumnentitel = (text.count(KOLUMNENTITEL.format(autor=werte["autor"], titel=werte["titel"]))
+                     if werte.get("autor") and werte.get("titel") else None)
+    return {"ordner": md.parent.name, **{feld: werte.get(feld) for feld in KOPFFELDER},
+            "kolumnentitel_im_text": kolumnentitel}
 
 
 def _referenzschriften() -> int | str:
