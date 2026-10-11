@@ -136,8 +136,9 @@ def einleitung(system: str = sys.platform) -> list[str]:
             "als eigene Dateien im Unterordner _internal und dürfen gegen eigene Fassungen ausgetauscht werden; den",
             "Quellcode von Qt gibt es unter https://download.qt.io/official_releases/qt/ und den von PySide6 unter",
             "https://download.qt.io/official_releases/QtForPython/. Die Texte der LGPL 3.0 und der GPL 3.0 stehen unten.",
-            "Qt WebEngine enthält Chromium; dessen Lizenzen stehen bei Qt unter",
-            "https://doc.qt.io/qt-6/qtwebengine-licensing.html."]
+            "Qt WebEngine enthält Chromium. Die Lizenztexte von Chromium und der Bestandteile Dritter, die Chromium und",
+            "Qt mitbringen (z.B. Blink, V8, zlib, FreeType, HarfBuzz, libpng, PCRE2, ICU, libtiff, libwebp), stehen",
+            "vollständig in der Datei CHROMIUM-LIZENZEN.txt neben dieser Datei."]
     return ["pdf2md – Lizenzen der mitgelieferten Bestandteile", "",
             f"pdf2md selbst steht unter der MIT-Lizenz (Datei LICENSE). {programm} enthält außerdem die",
             "folgenden Bestandteile Dritter. Ihre Lizenztexte stehen unten vollständig.", "", *anzeige,
