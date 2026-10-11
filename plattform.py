@@ -7,6 +7,7 @@ geprueft. Anzeige: Windows WebView2 (edgechromium), macOS WebKit (cocoa), Linux 
 WebKitGTK (gtk, Systempaket). SYSTEM ist austauschbar, damit sich alle Zweige auch unter Windows testen lassen."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import html
 import importlib.util
@@ -134,26 +135,45 @@ def oeffnen(pfad: Path) -> None:
 
 
 def adresse_oeffnen(adresse: str) -> None:
-    """Internetseite im Standardbrowser oeffnen. macOS/Linux ueber open bzw. xdg-open mit fremde_umgebung(): das Modul
-    webbrowser gaebe dem Browser die Umgebung der App mit (Linux: Bibliotheken aus dem Paket). Windows wie bisher."""
+    """Internetseite im Standardbrowser oeffnen; geht das nicht, kommt OSError mit dem Grund. macOS/Linux ueber open
+    bzw. xdg-open mit fremde_umgebung(): das Modul webbrowser gaebe dem Browser die Umgebung der App mit (Linux:
+    Bibliotheken aus dem Paket). Fehlt xdg-open (Linux ohne xdg-utils), sucht webbrowser selbst einen Browser (gio,
+    x-www-browser, firefox, ...); der erbt dann zwar die Umgebung der App, aber das ist besser als gar keine Seite.
+    Windows wie bisher ueber webbrowser; findet es keinen Browser, kommt jetzt ebenfalls OSError."""
     if windows():
-        import webbrowser
-        webbrowser.open(adresse)
-    else:
+        _browser(adresse, OSError("kein Browser gefunden"))
+        return
+    try:
         _starten(adresse)
+    except FileNotFoundError as fehlt:
+        _browser(adresse, fehlt)
+
+
+def _browser(adresse: str, fehler: OSError) -> None:
+    """Seite ueber das Modul webbrowser; findet es keinen Browser (Rueckgabe False), kommt fehler."""
+    import webbrowser
+    try:
+        geoeffnet = webbrowser.open(adresse)
+    except webbrowser.Error:
+        geoeffnet = False
+    if not geoeffnet:
+        raise fehler
 
 
 def _starten(ziel: str) -> None:
     """open (macOS) bzw. xdg-open (Linux) mit ziel. Beide kehren sonst gleich zurueck, ein Rueckgabewert ungleich 0
     heisst: nichts geoeffnet. Ohne Desktopumgebung wartet xdg-open aber, bis das gestartete Programm endet: laeuft es
     laenger als OEFFNEN_WARTEN, gilt es als geoeffnet, und ein Hintergrund-Thread holt den Prozess ab, sobald er endet
-    (sonst bliebe ein Zombie)."""
+    (sonst bliebe ein Zombie). Fehlt das Programm, kommt FileNotFoundError (adresse_oeffnen weicht dann aus); laesst
+    es sich aus einem anderen Grund nicht starten (keine Ausfuehrungsrechte, zu wenig Speicher), OSError mit Grund."""
     programm = "open" if mac() else "xdg-open"
     try:
         prozess = subprocess.Popen([programm, ziel], env=fremde_umgebung(), stdin=subprocess.DEVNULL,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"{programm} fehlt" + ("" if mac() else ", Paket xdg-utils installieren")) from e
     except OSError as e:
-        raise OSError(f"{programm} fehlt" + ("" if mac() else ", Paket xdg-utils installieren")) from e
+        raise OSError(f"{programm} lässt sich nicht starten: {e.strerror or e}") from e
     try:
         code = prozess.wait(timeout=OEFFNEN_WARTEN)
     except subprocess.TimeoutExpired:
@@ -179,7 +199,9 @@ def _oeffnen_fehler(programm: str, code: int) -> str:
 
 def einzelinstanz(basis: Path) -> bool:
     """True, wenn fuer diesen Ordner noch kein Fenster offen ist. Windows: benannter Mutex; macOS/Linux: gesperrte
-    Datei .pdf2md.lock in der Ablage (die Sperre endet mit dem Programm, auch nach einem Absturz)."""
+    Datei .pdf2md.lock in der Ablage (die Sperre endet mit dem Programm, auch nach einem Absturz). False nur, wenn
+    die Sperre schon gehalten wird; laesst sich der Ordner nicht anlegen, die Datei nicht oeffnen oder gar nicht
+    sperren, kommt OSError (PermissionError bei fehlendem Zugriff)."""
     if windows():
         import ctypes
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -196,11 +218,20 @@ def einzelinstanz(basis: Path) -> bool:
     datei = open(Path(basis) / ".pdf2md.lock", "a+")
     try:
         fcntl.flock(datei, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    except OSError as e:
         datei.close()
-        return False
+        if _gesperrt(e):
+            return False
+        raise                   # z.B. Netz- oder FUSE-Laufwerk ohne Dateisperren: nicht "laeuft schon" melden
     _GRIFFE.append(datei)
     return True
+
+
+def _gesperrt(fehler: OSError) -> bool:
+    """Heisst der Fehler von flock(LOCK_NB): ein anderes Programm haelt die Sperre? Laut Python-Doku EAGAIN bzw.
+    EWOULDBLOCK (BlockingIOError) oder je nach System EACCES. ENOLCK, EOPNOTSUPP oder EINVAL (Netz- und
+    FUSE-Laufwerke ohne Sperren) bedeuten dagegen: hier laesst sich gar nicht sperren."""
+    return isinstance(fehler, BlockingIOError) or fehler.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.EACCES)
 
 
 def _ausgabe(befehl: list[str]) -> str:
@@ -238,11 +269,12 @@ def meldung(text: str) -> None:
         if not shutil.which(befehl[0]):
             continue
         try:
-            subprocess.run(befehl, env=fremde_umgebung(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
-            return
+            code = subprocess.run(befehl, env=fremde_umgebung(), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL).returncode
         except (OSError, ValueError, subprocess.SubprocessError):     # naechstes Programm versuchen
             continue
+        if code in (0, 1):      # bestaetigt bzw. geschlossen; anderes (kein Display, GTK-Fehler): naechstes Programm
+            return
 
 
 def _dialoge(text: str) -> list[list[str]]:

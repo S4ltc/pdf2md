@@ -1069,7 +1069,10 @@
     for (const b of document.querySelectorAll(".nav")) b.addEventListener("click", () => zeigeSeite(b.dataset.seite));
     $("#starten").addEventListener("click", startenOderAbbrechen);
     $("#hinzufuegen").addEventListener("click", hinzufuegen);
-    $("#update").addEventListener("click", () => rufe("update_oeffnen"));
+    $("#update").addEventListener("click", async () => {
+      const antwort = await rufe("update_oeffnen");
+      if (!antwort.ok) melde(antwort.hinweis);
+    });
     $("#filter-fertig").addEventListener("input", e => { zustand.filter = e.target.value; zeigeFertig(); });
     for (const b of document.querySelectorAll("[data-ordner]")) {
       b.addEventListener("click", async () => {

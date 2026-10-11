@@ -50,16 +50,16 @@ def extern_oeffnen(pfad: Path) -> None:
     plattform.oeffnen(pfad)
 
 
-def link_oeffnen(adresse: str) -> bool:
+def link_oeffnen(adresse: str) -> str | None:
     """Seite im Standardbrowser oeffnen (nur feste Adressen aus dem Code, nie aus der Oberflaeche). macOS/Linux ueber
-    open/xdg-open mit der Umgebung fuer Programme des Systems (plattform.adresse_oeffnen). Ein Fehler steht wie bisher
-    bei webbrowser nur auf der Konsole; False, wenn sich nichts oeffnen liess."""
+    open/xdg-open mit der Umgebung fuer Programme des Systems (plattform.adresse_oeffnen). Rueckgabe: None, wenn die
+    Seite aufging, sonst der Grund (steht zusaetzlich auf der Konsole); der Aufrufer zeigt ihn im Fenster."""
     try:
         plattform.adresse_oeffnen(adresse)
     except OSError as e:
         print(f"{adresse} lässt sich nicht öffnen ({e})", file=sys.stderr)
-        return False
-    return True
+        return str(e) or type(e).__name__
+    return None
 
 
 def ordner_von(bereich: str) -> Path:
@@ -143,7 +143,11 @@ class Api:
         self._update_thread.start()
 
     def update_oeffnen(self) -> dict:
-        link_oeffnen(aktualisierung.SEITE)
+        """Release-Seite im Browser. Geht das nicht (z.B. Linux ohne xdg-open und ohne Browser), zeigt das Fenster
+        den Hinweis mit Grund und Adresse; frueher meldete es immer Erfolg, und der Klick blieb ohne jede Wirkung."""
+        grund = link_oeffnen(aktualisierung.SEITE)
+        if grund:
+            return {"ok": False, "hinweis": f"Download-Seite lässt sich nicht öffnen ({grund}): {aktualisierung.SEITE}"}
         return {"ok": True}
 
     def ereignisse(self, nach: int = 0) -> dict:
@@ -810,8 +814,9 @@ def _kennzahlen_pruefen(api: Api, texte: list[str], ende: float) -> dict:
 
 
 def main() -> int:
-    """Einstieg (pdf2md.exe, App, python ui_app.py). Ein Fehler, der hier ankommt, liesse das Programm sonst ohne jede
-    Meldung verschwinden (Fenster-Anwendung ohne Konsole): Traceback nach FEHLERDATEI und Meldung mit dem Pfad."""
+    """Einstieg (pdf2md.exe und App ueber start.py, aus dem Quellcode python ui_app.py). Ein Fehler, der hier ankommt,
+    liesse das Programm sonst ohne jede Meldung verschwinden (Fenster-Anwendung ohne Konsole): Traceback nach
+    FEHLERDATEI und Meldung mit dem Pfad. Fehler schon beim Import von ui_app faengt start.py."""
     try:
         return _programm()
     except Exception as e:
@@ -827,15 +832,18 @@ def main() -> int:
 
 
 def _programm() -> int:
-    multiprocessing.freeze_support()                         # noetig, damit die Unterprozesse in der .exe starten
+    multiprocessing.freeze_support()     # gebaut schon in start.py vor dem Import; bleibt, falls ui_app Einstieg ist
     plattform.vorbereiten()
     starttest = os.environ.get("PDF2MD_STARTTEST")             # nur beim Bauen gesetzt (werkzeuge/bauen.py)
     basis = ablage_ordner()
     try:
         frei = einzelinstanz(basis)
-    except OSError as e:                     # macOS: Zugriff auf Dokumente verweigert (Datenschutz), sonst Rechte
+    except PermissionError as e:             # macOS: Zugriff auf Dokumente verweigert (Datenschutz), sonst Rechte
         startfehler_melden(f"pdf2md hat keinen Zugriff auf seinen Ordner:\n{basis}\n{e.strerror or e}\n\n"
                            f"Abhilfe: {plattform.zugriff_hinweis()}, dann pdf2md neu starten.")
+        return 1
+    except OSError as e:                     # z.B. Laufwerk ohne Dateisperren, schreibgeschuetzt, voll
+        startfehler_melden(f"pdf2md kann seinen Ordner nicht verwenden:\n{basis}\n{e.strerror or e}")
         return 1
     if not frei:
         startfehler_melden(f"pdf2md läuft für diesen Ordner schon:\n{basis}")
