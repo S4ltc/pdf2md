@@ -626,10 +626,24 @@ def meldung(text: str) -> None:
     plattform.meldung(text)
 
 
-def _starttest(fenster, ziel: Path) -> None:
+# Start-Test, Phase 2 (Funktionstest): nur, wenn werkzeuge/bauen.py neben die Ergebnisdatei einen Ordner mit
+# erfundenen Testdateien legt (werkzeuge/testdateien.py); kein Schalter fuer Nutzer
+FUNKTIONSTEST_ORDNER = "testdateien"
+FUNKTIONSTEST_WARTEN = 240     # Sekunden fuer Phase 2 insgesamt (Umwandlung, Rueckgaengig, Kennzahlen)
+# pdf2md.py importiert diese Module per try/except: fehlt eines im Paket, ist es dort still None (der Lauf weicht aus)
+OPTIONALE_MODULE = ("formeln", "lesefolge", "zeichen", "normen", "tabellen", "formelsatz", "seitenzahlen",
+                    "zitierdaten", "schriftbild", "einstellungen")
+KOPFFELDER = ("originaldatei", "titel", "autor", "jahr", "textquelle", "pruefen", "warnung", "einstellungen",
+              "lesezeichen", "tabellen")
+
+
+def _starttest(fenster, ziel: Path, api: Api | None = None) -> None:
     """Nur fuer den automatischen Start-Test beim Bauen (Umgebungsvariable PDF2MD_STARTTEST, kein Schalter fuer
-    Nutzer): wartet, bis die Oberflaeche ihre Versionsnummer ueber die Python-Schnittstelle geholt und angezeigt hat
-    (Engine, Seite und Schnittstelle laufen), schreibt das Ergebnis nach ziel und schliesst das Fenster."""
+    Nutzer). Phase 1: wartet, bis die Oberflaeche ihre Versionsnummer ueber die Python-Schnittstelle geholt und
+    angezeigt hat (Engine, Seite und Schnittstelle laufen). Phase 2 (_funktionstest) nur mit api und einem Ordner
+    testdateien neben ziel. Schreibt das Ergebnis nach ziel und schliesst das Fenster; das Ergebnis von Phase 1 steht
+    schon vor Phase 2 dort, damit es ein Zeitlimit in Phase 2 (bauen.py beendet das Programm) uebersteht."""
+    ziel = Path(ziel)
     ergebnis = {"ok": False, "version": aktualisierung.VERSION, "gui": plattform.gui(), "system": plattform.SYSTEM}
     ende = time.time() + STARTTEST_WARTEN
     while time.time() < ende:
@@ -642,8 +656,157 @@ def _starttest(fenster, ziel: Path) -> None:
             ergebnis.pop("fehler", None)
             break
         time.sleep(STARTTEST_TAKT)
-    Path(ziel).write_text(json.dumps(ergebnis, ensure_ascii=False), encoding="utf-8")
+    testordner = ziel.parent / FUNKTIONSTEST_ORDNER
+    if api is not None and testordner.is_dir():
+        def zwischenstand(bericht: dict) -> None:
+            # nach jedem Schritt: beendet bauen.py das Programm im Zeitlimit (etwa weil ein Unterprozess haengt),
+            # zeigt das Ergebnis, wie weit Phase 2 kam
+            ziel.write_text(json.dumps({**ergebnis, "funktion": bericht}, ensure_ascii=False), encoding="utf-8")
+        ziel.write_text(json.dumps(ergebnis, ensure_ascii=False), encoding="utf-8")
+        ergebnis["funktion"] = _funktionstest(api, sorted(p for p in testordner.iterdir() if p.is_file()),
+                                              zwischenstand)
+        api.abbrechen()                       # laeuft nach einem Zeitlimit noch ein Lauf, endet er nach der Datei
+        api._schliessen_erlaubt = True        # und haelt das Fenster nicht offen (_beim_schliessen)
+    ziel.write_text(json.dumps(ergebnis, ensure_ascii=False), encoding="utf-8")
     fenster.destroy()
+
+
+def _funktionstest(api: Api, pfade: list[Path], zwischenstand=None) -> dict:
+    """Phase 2 des Start-Tests: wandelt die Testdateien auf demselben Weg um wie die Oberflaeche (hinzufuegen, starten,
+    Rueckgaengig, stand, auswertung). So faellt ein Paket auf, dem ein Modul, eine Schrift oder die Unterprozesse
+    fehlen: pdf2md.py setzt fehlende Module still auf None und weicht auf MarkItDown aus, das Fenster startet trotzdem.
+    Sammelt nur Befunde; bewertet werden sie in werkzeuge/bauen.py (funktion_bewerten, mit dem Erwartungswert der
+    textquelle aus dem Quellstand). Nur in einer leeren Ablage (bauen.py legt sie im Temp-Ordner an): Phase 2 laesst
+    Kopien in Fertig zurueck und macht den letzten Lauf rueckgaengig, das darf nie Nutzerdaten treffen.
+    zwischenstand(bericht) bekommt den Bericht nach jedem Schritt; "sekunden" steht erst am Ende darin."""
+    start = time.time()
+    ende = start + FUNKTIONSTEST_WARTEN
+    bericht: dict = {"dateien": [p.name for p in pfade], "schritt": "hinzufuegen"}
+
+    def schritt(name: str) -> None:
+        bericht["schritt"] = name
+        if zwischenstand is not None:
+            zwischenstand(bericht)
+
+    try:
+        vorher = _ablage_inhalt()
+        if any(vorher.values()) or pdf2md.PROTOKOLL.exists():
+            raise RuntimeError(f"Ablage nicht leer, Phase 2 nur in einer frischen Ablage ({vorher})")
+        bericht["hinzufuegen"] = api.hinzufuegen([str(p) for p in pfade])
+        schritt("umwandlung")
+        bericht["lauf"] = _lauf_abwarten(api, api.starten, ende)
+        schritt("ergebnis")
+        bericht["ablage"] = _ablage_inhalt()
+        mds = sorted(pdf2md.FERTIG.glob("*.md")) + sorted(pdf2md.PRUEFEN.glob("*.md"))
+        bericht["kopfblock"] = {md.name: _kopffelder(md) for md in mds}
+        bericht["protokoll"] = [z.get("status") for z in api._protokoll()]
+        bericht["module_fehlen"] = [n for n in OPTIONALE_MODULE if getattr(pdf2md, n, None) is None]
+        bericht["referenzschriften"] = _referenzschriften()
+        texte = [md.read_text(encoding="utf-8") for md in mds]
+        schritt("rueckgaengig")
+        vorschau = api.werkzeug_vorschau("rueckgaengig")
+        rueckgaengig = _lauf_abwarten(api, lambda: api.werkzeug_starten("rueckgaengig"), ende)
+        bericht["rueckgaengig"] = {"eintraege": vorschau["anzahl"], **rueckgaengig, "ablage": _ablage_inhalt()}
+        schritt("kennzahlen")
+        bericht["kennzahlen"] = _kennzahlen_pruefen(api, texte, ende)
+        bericht["schritt"] = "fertig"
+    except Exception as e:                                    # Befund statt Absturz: Phase 1 steht schon fest
+        bericht["fehler"] = f"{type(e).__name__}: {e}"[:500]
+    bericht["sekunden"] = round(time.time() - start, 1)
+    return bericht
+
+
+def _lauf_abwarten(api: Api, starten, ende: float) -> dict:
+    """Startet einen Lauf wie ein Klick in der Oberflaeche und wartet auf das Ereignis lauf_ende, hoechstens bis ende.
+    Ergebnis, Fehler, Dauer und die Meldungen des Laufs (fuer den Hinweis am Build-Lauf)."""
+    nach = api.ereignisse(0)["letzte"]
+    start = time.time()
+    antwort = starten()
+    if not antwort.get("ok"):
+        return {"ende": False, "fehler": antwort.get("grund") or "nicht gestartet"}
+    while True:
+        neu = api.ereignisse(nach)["ereignisse"]
+        schluss = next((e for e in neu if e["art"] == "lauf_ende"), None)
+        if schluss is not None or time.time() >= ende:
+            break
+        time.sleep(STARTTEST_TAKT)
+    if schluss is not None:
+        api._warten(max(0.0, ende - time.time()))           # auch das Aufraeumen nach dem Lauf abwarten
+    return {"ende": schluss is not None, "ergebnis": schluss["ergebnis"] if schluss else None,
+            "fehler": schluss["fehler"] if schluss else "Zeitlimit", "sekunden": round(time.time() - start, 1),
+            "meldungen": [e["text"][:300] for e in neu if e["art"] == "meldung"][-40:]}
+
+
+def _ablage_inhalt() -> dict:
+    return {bereich: sorted(p.name for p in ordner_von(bereich).iterdir() if p.is_file())
+            if ordner_von(bereich).is_dir() else [] for bereich in BEREICHE}
+
+
+def _kopffelder(md: Path) -> dict:
+    werte, _ = ablage.kopf_lesen_datei(md)
+    return {"ordner": md.parent.name, **{feld: (werte or {}).get(feld) for feld in KOPFFELDER}}
+
+
+def _referenzschriften() -> int | str:
+    """Zahl der Referenzschriften, die die Formelreparatur laedt (schriften/ im Paket, sys._MEIPASS), sonst der
+    Fehler. 0, wenn formeln fehlt."""
+    formeln = pdf2md.formeln
+    if formeln is None:
+        return 0
+    try:
+        return len(formeln._referenz().schriften)
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"[:300]
+
+
+def _kennzahlen_pruefen(api: Api, texte: list[str], ende: float) -> dict:
+    """Kopiert so viele .md nach Fertig, dass das Fenster die Kennzahlen in Unterprozessen rechnet
+    (PARALLEL_AB_BUECHERN, Api._parallel_rechnen), und wartet ueber stand(), bis sie ankommen; danach auswertung().
+    Scheitern die Unterprozesse, rechnet _vorwaermen still im Thread nach: ob sie wirklich gerechnet haben, zaehlt
+    deshalb eine Huelle um _parallel_rechnen (Eintraege der Kopien im Zwischenspeicher direkt danach)."""
+    texte = texte or [pdf2md.kopf_schreiben({"titel": "Beispielbuch", "seiten": 1}) + "<!-- PDF-Seite 1 -->\nText"]
+    kopien = [pdf2md.FERTIG / f"Funktionstest {i:03d}.md" for i in range(1, PARALLEL_AB_BUECHERN + 1)]
+    unterprozesse: dict = {"aufrufe": 0, "berechnet": 0, "fehler": None}
+    echt = api._parallel_rechnen
+
+    def beobachtet() -> None:
+        unterprozesse["aufrufe"] += 1
+        try:
+            echt()
+        except Exception as e:
+            unterprozesse["fehler"] = f"{type(e).__name__}: {e}"[:500]
+            raise
+        finally:
+            gerechnet = sum(1 for p in kopien if str(p) in api._zwischenspeicher)
+            unterprozesse["berechnet"] = max(unterprozesse["berechnet"], gerechnet)
+
+    if api._vorwaermer is not None:                          # eine aeltere Berechnung zaehlte sonst die Kopien mit
+        api._vorwaermer.join(max(0.0, ende - time.time()))
+    api._parallel_rechnen = beobachtet
+    try:
+        # unter der Sperre: das Fenster ruft nach jeder Aenderung der Ordner stand() auf und stiesse die Berechnung
+        # sonst schon mit einem Teil der Kopien an, unterhalb von PARALLEL_AB_BUECHERN im Thread
+        with api._sperre:
+            pdf2md.FERTIG.mkdir(parents=True, exist_ok=True)
+            for i, pfad in enumerate(kopien):
+                pdf2md.md_schreiben(pfad, texte[i % len(texte)])
+            erwartet = len(list(pdf2md.FERTIG.glob("*.md")))
+        start = time.time()
+        kennzahlen = None
+        while time.time() < ende:
+            kennzahlen = api.stand()["kennzahlen"]
+            if kennzahlen is not None and kennzahlen["fertig"] == erwartet:
+                break
+            time.sleep(STARTTEST_TAKT)
+        sekunden = round(time.time() - start, 1)
+        if api._vorwaermer is not None:      # die Ergebnisse kommen vor dem Ende der Unterprozesse (shutdown wartet)
+            api._vorwaermer.join(max(0.0, ende - time.time()))
+        bestand = api.auswertung()["bestand"]["bereiche"]
+    finally:
+        del api._parallel_rechnen
+    return {"kopien": len(kopien), "erwartet": erwartet, "fertig": (kennzahlen or {}).get("fertig"),
+            "angekommen": bool(kennzahlen) and kennzahlen["fertig"] == erwartet, "sekunden": sekunden,
+            "unterprozesse": unterprozesse, "auswertung_fertig": bestand.get("Fertig")}
 
 
 def main() -> int:
@@ -688,7 +851,7 @@ def _programm() -> int:
     fenster.events.closing += api._beim_schliessen
     fenster.events.loaded += api._beim_laden
     if starttest:
-        webview.start(_starttest, (fenster, Path(starttest)), gui=plattform.gui(), private_mode=True)
+        webview.start(_starttest, (fenster, Path(starttest), api), gui=plattform.gui(), private_mode=True)
     else:
         webview.start(gui=plattform.gui(), private_mode=True)
     return 0

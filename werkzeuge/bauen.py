@@ -22,7 +22,9 @@ from pathlib import Path
 
 WURZEL = Path(__file__).resolve().parent.parent
 SYSTEM = sys.platform           # Tests setzen es um
-STARTTEST_ZEIT = 240            # Sekunden; so lange darf der Start-Test hoechstens dauern
+# Sekunden; so lange darf der Start-Test hoechstens dauern: Phase 1 bis 90 s (ui_app.STARTTEST_WARTEN), Phase 2 bis
+# 240 s (ui_app.FUNKTIONSTEST_WARTEN), dazu Start und Ende des Programms
+STARTTEST_ZEIT = 420
 
 
 def windows() -> bool:
@@ -154,11 +156,137 @@ def aufraeumen(ausgabe: Path) -> tuple[int, list[str]]:
     return gespart, sorted(p.name for p in plugins + bibliotheken)
 
 
+def testdateien_modul():
+    """werkzeuge/testdateien.py (auch, wenn bauen.py selbst per importlib geladen wurde wie in den Tests)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("testdateien", Path(__file__).resolve().parent / "testdateien.py")
+    modul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return modul
+
+
+TESTDATEIEN_MODULE = ("fpdf", "docx")       # fpdf2 und python-docx (requirements-dev.txt) erzeugen die Testdateien
+
+
+def funktionstest_moeglich() -> bool:
+    """Phase 2 braucht fpdf2 und python-docx im Build-Python (bauen.yml installiert requirements-dev.txt). Fehlen sie,
+    etwa in einem Test, der nur das fertige Paket auf einem anderen System startet, laeuft Phase 2 still nicht."""
+    import importlib.util
+    return all(importlib.util.find_spec(modul) is not None for modul in TESTDATEIEN_MODULE)
+
+
+def testdateien_anlegen(ordner: Path) -> str | None:
+    """Legt die erfundenen Testdateien fuer Phase 2 des Start-Tests an (braucht fpdf2 und python-docx der
+    Build-Umgebung). None = angelegt, sonst der Grund; ohne vollstaendige Testdateien laeuft keine Phase 2."""
+    try:
+        testdateien_modul().anlegen(ordner)
+    except Exception as e:
+        shutil.rmtree(ordner, ignore_errors=True)
+        return f"{type(e).__name__}: {e}"[:300]
+    return None
+
+
+def erwartung_aus_quellstand() -> dict:
+    """Was Phase 2 im Paket ergeben soll, aus dem Quellstand im Build-Python mit den Standard-Einstellungen (das Paket
+    startet mit einer leeren Ablage, also ohne Einstellungen.json): textquelle je Endung und Zahl der
+    Referenzschriften der Formelreparatur. Die Einstellungen dieses Prozesses bleiben unveraendert. Fehlt hier ein
+    optionales Modul, fehlt es auch im Paket (gleiche Umgebung); das zeigt dann module_fehlen."""
+    if str(WURZEL) not in sys.path:
+        sys.path.insert(0, str(WURZEL))
+    import einstellungen
+    import pdf2md
+    vorher = einstellungen.aktuell()
+    einstellungen.anwenden(einstellungen.standardwerte())
+    try:
+        schriften = len(pdf2md.formeln._referenz().schriften) if pdf2md.formeln is not None else 0
+        return {"textquellen": {".pdf": pdf2md.erwartete_textquelle(),
+                                ".docx": pdf2md.PDF_ENGINE_NAMEN["markitdown"]},
+                "referenzschriften": schriften}
+    finally:
+        einstellungen.anwenden(vorher)
+
+
+def funktion_bewerten(funktion: dict | None, erwartung: dict, dateien: dict) -> list[str]:
+    """Abweichungen in Phase 2 des Start-Tests (leer = in Ordnung). funktion: Befunde von ui_app._funktionstest,
+    erwartung: erwartung_aus_quellstand(), dateien: Name -> Titel, Autor, Jahr und erwartete Kopfblock-Felder der
+    Testdateien (testdateien.DATEIEN). Alle Testdateien gehoeren nach Fertig."""
+    if not funktion:
+        return ["kein Ergebnis von Phase 2 (Programm vorher beendet oder Zeitlimit)"]
+    abweichungen = [f"Ausnahme: {funktion['fehler']}"] if funktion.get("fehler") else []
+    if "sekunden" not in funktion:                     # nur ein Zwischenstand: das Programm wurde vorher beendet
+        abweichungen.append(f"Phase 2 nicht zu Ende gelaufen (Programm beendet, Zeitlimit {STARTTEST_ZEIT} s?), "
+                            f"zuletzt im Schritt {funktion.get('schritt')}")
+    anzahl = len(dateien)
+    lauf = funktion.get("lauf") or {}
+    if not lauf.get("ende") or lauf.get("fehler"):
+        abweichungen.append(f"Umwandlung: {lauf.get('fehler') or 'nicht beendet'}")
+    ablage = funktion.get("ablage") or {}
+    if ablage:
+        if ablage.get("eingang") or ablage.get("pruefen"):
+            abweichungen.append(f"nach der Umwandlung in Eingang {ablage.get('eingang')}, in Prüfen "
+                                f"{ablage.get('pruefen')}")
+        if sum(1 for n in ablage.get("fertig", []) if n.endswith(".md")) != anzahl:
+            abweichungen.append(f"in Fertig {ablage.get('fertig')} statt {anzahl} Dateien mit .md")
+    kopfbloecke = {k.get("originaldatei"): k for k in (funktion.get("kopfblock") or {}).values()}
+    for name, angaben in dateien.items():
+        kopf = kopfbloecke.get(name)
+        if kopf is None:
+            if "kopfblock" in funktion:
+                abweichungen.append(f"{name}: keine .md")
+            continue
+        if kopf.get("pruefen"):
+            abweichungen.append(f"{name}: pruefen: {kopf['pruefen']}")
+        for feld in ("titel", "autor", "jahr"):
+            if kopf.get(feld) != angaben[feld]:
+                abweichungen.append(f"{name}: {feld} {kopf.get(feld)!r} statt {angaben[feld]!r}")
+        soll = erwartung["textquellen"].get(Path(name).suffix.lower())
+        if kopf.get("textquelle") != soll:
+            abweichungen.append(f"{name}: textquelle {kopf.get('textquelle')!r} statt {soll!r}")
+        for feld in angaben.get("felder", ()):
+            if not kopf.get(feld):
+                abweichungen.append(f"{name}: kein Feld {feld} im Kopfblock")
+    if "protokoll" in funktion and funktion["protokoll"] != ["OK"] * anzahl:
+        abweichungen.append(f"Protokoll {funktion['protokoll']} statt {['OK'] * anzahl}")
+    if funktion.get("module_fehlen"):
+        abweichungen.append(f"Module fehlen im Paket: {', '.join(funktion['module_fehlen'])}")
+    if "referenzschriften" in funktion and funktion["referenzschriften"] != erwartung["referenzschriften"]:
+        abweichungen.append(f"Referenzschriften der Formelreparatur: {funktion['referenzschriften']} statt "
+                            f"{erwartung['referenzschriften']}")
+    rueck = funktion.get("rueckgaengig")
+    if rueck is not None:
+        eingang = (rueck.get("ablage") or {}).get("eingang", [])
+        if rueck.get("eintraege") != anzahl:
+            abweichungen.append(f"Rückgängig: {rueck.get('eintraege')} statt {anzahl} Einträge in der Vorschau")
+        if not rueck.get("ende") or rueck.get("fehler"):
+            abweichungen.append(f"Rückgängig: {rueck.get('fehler') or 'nicht beendet'}")
+        if not set(dateien) <= set(eingang):
+            abweichungen.append(f"nach Rückgängig im Eingang {eingang} statt {sorted(dateien)}")
+    kennzahlen = funktion.get("kennzahlen")
+    if kennzahlen is not None:
+        if not kennzahlen.get("angekommen"):
+            abweichungen.append(f"Kennzahlen nicht angekommen: {kennzahlen.get('fertig')} statt "
+                                f"{kennzahlen.get('erwartet')} Bücher nach {kennzahlen.get('sekunden')} s")
+        unter = kennzahlen.get("unterprozesse") or {}
+        if unter.get("berechnet") != kennzahlen.get("kopien"):
+            abweichungen.append(f"Unterprozesse haben {unter.get('berechnet')} von {kennzahlen.get('kopien')} "
+                                f"Kennzahlen gerechnet ({unter.get('fehler') or 'ohne Fehlermeldung'})")
+        if kennzahlen.get("auswertung_fertig") != kennzahlen.get("erwartet"):
+            abweichungen.append(f"Auswertung: {kennzahlen.get('auswertung_fertig')} statt "
+                                f"{kennzahlen.get('erwartet')} Bücher in Fertig")
+    return abweichungen
+
+
 def starttest(ausgabe: Path, bericht: Path) -> int:
     """Startet das gebaute Programm mit PDF2MD_STARTTEST und wertet das Ergebnis aus. 0 = Oberflaeche hat sich
-    gemeldet (Engine, Seite und Python-Schnittstelle laufen)."""
-    with tempfile.TemporaryDirectory() as tmp:
+    gemeldet (Phase 1: Engine, Seite und Python-Schnittstelle laufen). Phase 2 (ui_app._funktionstest) wandelt die
+    erfundenen Testdateien im Ordner testdateien neben der Ergebnisdatei um; ihr Ergebnis steht als funktion_ok mit den
+    Abweichungen im Bericht und als Hinweis am Lauf, macht den Start-Test aber vorerst NICHT rot: erst nach mehreren
+    gruenen Laeufen auf allen vier Systemen soll ein Fehler in Phase 2 auch die Rueckgabe auf 1 setzen. Ohne fpdf2
+    und python-docx (funktionstest_moeglich) laeuft nur Phase 1, ohne Hinweis."""
+    phase_2 = funktionstest_moeglich()
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ergebnis = Path(tmp) / "ergebnis.json"
+        nicht_angelegt = testdateien_anlegen(Path(tmp) / "testdateien") if phase_2 else None
         env = {**os.environ, "PDF2MD_ABLAGE": str(Path(tmp) / "ablage"), "PDF2MD_STARTTEST": str(ergebnis)}
         befehl = [str(programm(ausgabe))]
         if not windows() and not mac() and not os.environ.get("DISPLAY") and shutil.which("xvfb-run"):
@@ -177,9 +305,25 @@ def starttest(ausgabe: Path, bericht: Path) -> int:
     # aber ueber mehrere Laeufe vergleichbar sein (z.B. "Failed to send GpuControl.CreateCommandBuffer" unter xvfb)
     daten.update(rueckgabe=code, ausgabe=ausgabe_text[-3000:],
                  chromium_fehler=sum(1 for z in ausgabe_text.splitlines() if ":ERROR:" in z))
+    if phase_2:
+        if nicht_angelegt:
+            abweichungen = [f"Testdateien nicht angelegt, Phase 2 lief nicht: {nicht_angelegt}"]
+        else:
+            try:
+                funktion = daten.get("funktion")
+                abweichungen = funktion_bewerten(funktion, erwartung_aus_quellstand() if funktion else {},
+                                                 testdateien_modul().DATEIEN)
+            except Exception as e:                     # die Bewertung darf Phase 1 nie umwerfen
+                abweichungen = [f"Bewertung nicht möglich: {type(e).__name__}: {e}"[:300]]
+        # vorerst nur Hinweis (hinweise: Warnung "Funktionstest NAME"); nach mehreren gruenen Laeufen auf allen
+        # Systemen soll funktion_ok auch die Rueckgabe bestimmen
+        daten.update(funktion_ok=not abweichungen, funktion_abweichungen=abweichungen)
     bericht.write_text(json.dumps(daten, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(json.dumps(daten, ensure_ascii=False, indent=1))
-    return 0 if daten.get("ok") else 1
+    try:
+        print(json.dumps(daten, ensure_ascii=False, indent=1))
+    except UnicodeEncodeError:                         # Konsole ohne UTF-8 (Windows-Runner: cp1252)
+        print(json.dumps(daten, indent=1))
+    return 0 if daten.get("ok") else 1                # Phase 2 vorerst nur als Hinweis (siehe oben)
 
 
 def drittlizenzen(ziel: Path) -> None:
@@ -270,9 +414,27 @@ CHROMIUM_AUFGABE = ("Chromium-Lizenzen im Linux-Paket nur als Verweis. Vor dem f
                     "echten Geraeten) als Volltext aufnehmen, siehe CLAUDE.md, Abschnitt Offene Aufgaben.")
 
 
+def funktionstest_hinweis(d: dict) -> tuple[str, str]:
+    """Art und Text des Hinweises zu Phase 2 des Start-Tests: Warnung mit den Abweichungen (und den Meldungen der
+    Umwandlung), sonst eine kurze Notiz mit den Zeiten. Vorerst nur Hinweis, der Start-Test bleibt gruen."""
+    f = d.get("funktion") or {}
+    if d.get("funktion_ok"):
+        kurz = {"sekunden": f.get("sekunden"), "umwandlung_s": (f.get("lauf") or {}).get("sekunden"),
+                "kennzahlen_s": (f.get("kennzahlen") or {}).get("sekunden"),
+                "unterprozesse": ((f.get("kennzahlen") or {}).get("unterprozesse") or {}).get("berechnet")}
+        return "notice", "OK " + json.dumps(kurz, ensure_ascii=False)
+    text = ("FEHLER (vorerst nur Hinweis, der Start-Test bleibt gruen)\n"
+            + "\n".join(f"- {a}" for a in d.get("funktion_abweichungen") or []))
+    meldungen = (f.get("lauf") or {}).get("meldungen")
+    if meldungen:
+        text += "\nMeldungen der Umwandlung:\n" + "\n".join(meldungen)
+    return "warning", text[:HINWEIS_LAENGE]
+
+
 def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[str]:
     """Ergebnis von Start-Test und Paket als GitHub-Hinweise (::notice), ohne Anmeldung ueber die API lesbar. Bei
-    einem Release (TAG gesetzt) zusaetzlich eine Warnung, solange Qt ohne Chromium-Lizenztexte im Paket steckt."""
+    einem Release (TAG gesetzt) zusaetzlich eine Warnung, solange Qt ohne Chromium-Lizenztexte im Paket steckt.
+    Phase 2 des Start-Tests (Funktionstest) steht direkt nach dem Start-Test, bei Abweichungen als Warnung."""
     tag = tag or os.environ.get("TAG", "probe")
     warnungen = []
     test = wurzel / "starttest.json"
@@ -280,14 +442,17 @@ def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[s
         d = json.loads(test.read_text(encoding="utf-8"))
         kurz = {k: d.get(k) for k in ("gui", "angezeigt", "fehler", "rueckgabe", "chromium_fehler")}
         meldungen = [(f"Start-Test {name}", ("OK " if d.get("ok") else "FEHLER ") + json.dumps(kurz, ensure_ascii=False)
-                      + "\n" + (d.get("ausgabe") or "")[-2500:])]
+                      + "\n" + (d.get("ausgabe") or "")[-2500:], "notice")]
+        if "funktion_ok" in d:
+            art, text = funktionstest_hinweis(d)
+            meldungen.append((f"Funktionstest {name}", text, art))
     else:
-        meldungen = [(f"Start-Test {name}", "nicht gelaufen (Build fehlgeschlagen?)")]
+        meldungen = [(f"Start-Test {name}", "nicht gelaufen (Build fehlgeschlagen?)", "notice")]
     for datei, titel in (("aufgeraeumt.json", "Aufgeraeumt"), ("paket.json", "Paket")):
         if (wurzel / datei).exists():
             text = (wurzel / datei).read_text(encoding="utf-8")
             teile = [text[i:i + HINWEIS_LAENGE] for i in range(0, len(text), HINWEIS_LAENGE)]
-            meldungen += [(f"{titel} {name}" + (f" ({n}/{len(teile)})" if len(teile) > 1 else ""), teil)
+            meldungen += [(f"{titel} {name}" + (f" ({n}/{len(teile)})" if len(teile) > 1 else ""), teil, "notice")
                           for n, teil in enumerate(teile, 1)]
     if tag != "probe" and (wurzel / "paket.json").exists():
         bericht = json.loads((wurzel / "paket.json").read_text(encoding="utf-8"))
@@ -296,7 +461,7 @@ def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[s
     def maskiert(text: str) -> str:
         return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
     return ([f"::warning title={maskiert(titel)}::{maskiert(text)}" for titel, text in warnungen]
-            + [f"::notice title={maskiert(titel)}::{maskiert(text)}" for titel, text in meldungen])
+            + [f"::{art} title={maskiert(titel)}::{maskiert(text)}" for titel, text, art in meldungen])
 
 
 def main(argumente: list[str]) -> int:
