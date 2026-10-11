@@ -3,6 +3,7 @@
 Die Tests brauchen keine echten Buecher. PDFs werden mit fpdf2 erzeugt (mit der mitgelieferten DejaVu-Schrift, damit
 Umlaute und Sonderzeichen funktionieren), DOCX mit python-docx, EPUB von Hand."""
 
+import os
 import sys
 import zipfile
 from datetime import datetime
@@ -15,6 +16,7 @@ WURZEL = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(WURZEL))
 
 import pdf2md  # noqa: E402
+import plattform  # noqa: E402
 
 DEJAVU = WURZEL / "schriften" / "DejaVuSans.ttf"
 FUELLTEXT = ("Dies ist ein Absatz mit genug Text, damit die Erkennung von Scans nicht anschlaegt und das Buch als "
@@ -30,6 +32,25 @@ def keine_echte_ablage(tmp_path_factory, monkeypatch):
     for name, unter in (("EINGANG", "Eingang"), ("FERTIG", "Fertig"), ("PRUEFEN", "Prüfen"),
                         ("PROTOKOLL", "Protokoll.csv"), ("SICHERUNG", "Sicherung")):
         monkeypatch.setattr(pdf2md, name, basis / unter)
+
+
+# was plattform.vorbereiten() in os.environ setzen kann (test_plattform prueft, dass die Liste vollstaendig ist)
+PLATTFORM_VARIABLEN = ("QTWEBENGINE_DISABLE_SANDBOX", "SSL_CERT_FILE")
+
+
+@pytest.fixture(autouse=True)
+def plattform_frisch(monkeypatch):
+    """Jeder Test beginnt mit leerem plattform._EIGENE, und was plattform.vorbereiten() in os.environ schreibt (direkt,
+    an monkeypatch vorbei), ist danach wieder weg. Frueher blieben QTWEBENGINE_DISABLE_SANDBOX=1, SSL_CERT_FILE auf
+    ein geloeschtes PEM und _EIGENE nach test_bauen.py::test_linux_ohne_chromium_sandbox fuer den Rest des Laufs
+    stehen. monkeypatch.delenv merkt sich eine fehlende Variable nicht; deshalb erst setenv (merkt sich den Zustand
+    vorher), dann delenv bzw. der alte Wert. Diese Eintraege nimmt monkeypatch als letzte zurueck."""
+    monkeypatch.setattr(plattform, "_EIGENE", {})
+    for name in PLATTFORM_VARIABLEN:
+        wert = os.environ.get(name)
+        monkeypatch.setenv(name, wert or "")
+        if wert is None:
+            monkeypatch.delenv(name)
 
 
 @pytest.fixture

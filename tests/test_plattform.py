@@ -1,15 +1,35 @@
 """Was je Betriebssystem anders ist (plattform.py). Die Zweige fuer macOS und Linux laufen hier mit umgesetzter
 Systemkennung und nachgebildeten Programmen; die Sperrdatei nur dort, wo es fcntl gibt (GitHub: macOS, Linux)."""
+import errno
+import inspect
 import os
+import re
 import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from types import SimpleNamespace
 
 import pytest
 
 import plattform as P
+from conftest import PLATTFORM_VARIABLEN
+
+
+@pytest.fixture(scope="module", autouse=True)
+def umgebung_bleibt_sauber():
+    """Nach allen Tests dieses Moduls ist os.environ wie vorher, sonst Fehler beim Abbau. Frueher blieben
+    QTWEBENGINE_DISABLE_SANDBOX=1 und SSL_CERT_FILE auf ein geloeschtes PEM fuer den Rest des Laufs stehen.
+    PYTEST_CURRENT_TEST setzt pytest selbst je Test."""
+    def umgebung():
+        return {k: v for k, v in os.environ.items() if k != "PYTEST_CURRENT_TEST"}
+    vorher = umgebung()
+    yield
+    nachher = umgebung()
+    unterschied = {k: (vorher.get(k), nachher.get(k)) for k in vorher.keys() | nachher.keys()
+                   if vorher.get(k) != nachher.get(k)}
+    assert not unterschied
 
 
 @pytest.fixture
@@ -81,6 +101,48 @@ def test_ein_fenster_je_ordner_mit_sperrdatei(tmp_path):
     assert P.einzelinstanz(tmp_path / "zwei")
 
 
+@pytest.fixture
+def flock(monkeypatch, system):
+    """Nachgebildetes fcntl (unter Windows gibt es keins): flock wirft den gesetzten Fehler, sonst gelingt die Sperre.
+    Gehaltene Sperrdateien schliesst die Fixture am Ende."""
+    griffe = []
+    monkeypatch.setattr(P, "_GRIFFE", griffe)
+    system("linux")
+
+    def setzen(fehler=None):
+        def sperren(datei, art):
+            if fehler is not None:
+                raise fehler
+        monkeypatch.setitem(sys.modules, "fcntl", SimpleNamespace(flock=sperren, LOCK_EX=2, LOCK_NB=4))
+    yield setzen
+    for datei in griffe:
+        datei.close()
+
+
+def test_einzelinstanz_sperre_frei(flock, tmp_path):
+    flock(None)
+    assert P.einzelinstanz(tmp_path / "ablage") is True
+    assert len(P._GRIFFE) == 1 and (tmp_path / "ablage" / ".pdf2md.lock").is_file()
+
+
+@pytest.mark.parametrize("fehler", [BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable"),
+                                    OSError(errno.EACCES, "Permission denied")])
+def test_einzelinstanz_laeuft_schon_nur_bei_gehaltener_sperre(flock, tmp_path, fehler):
+    """flock(LOCK_NB) meldet eine gehaltene Sperre je nach System mit EAGAIN oder EACCES."""
+    flock(fehler)
+    assert P.einzelinstanz(tmp_path) is False and P._GRIFFE == []
+
+
+@pytest.mark.parametrize("nummer", [errno.ENOLCK, errno.EOPNOTSUPP, errno.EINVAL])
+def test_einzelinstanz_laufwerk_ohne_sperren_ist_ein_fehler(flock, tmp_path, nummer):
+    """Netz- und FUSE-Laufwerke ohne Dateisperren: frueher hiess jeder Fehler "läuft schon", und pdf2md startete dort
+    nie, mit einer falschen Meldung. Jetzt geht der Fehler weiter (ui_app._programm meldet ihn mit Grund)."""
+    flock(OSError(nummer, os.strerror(nummer)))
+    with pytest.raises(OSError) as fehler:
+        P.einzelinstanz(tmp_path)
+    assert fehler.value.errno == nummer and P._GRIFFE == []
+
+
 class TestAblage:
     @pytest.fixture
     def app(self, monkeypatch, tmp_path):
@@ -149,11 +211,14 @@ class Prozess:
 
 @pytest.fixture
 def eigene(monkeypatch):
-    """Frischer Merker fuer die Variablen aus vorbereiten(); die Umgebung kommt nach dem Test zurueck."""
+    """Frischer Merker fuer die Variablen aus vorbereiten(), die Variablen selbst fehlen; die Umgebung kommt nach dem
+    Test zurueck. vorbereiten() schreibt direkt in os.environ, und monkeypatch.delenv merkt sich eine fehlende
+    Variable nicht: erst setenv (merkt sich den Zustand vorher), dann delenv."""
     monkeypatch.setattr(P, "_EIGENE", {})
     for name in ("QTWEBENGINE_DISABLE_SANDBOX", "SSL_CERT_FILE", "LD_LIBRARY_PATH", "LD_LIBRARY_PATH_ORIG",
                  "QT_PLUGIN_PATH"):
-        monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
 
 
 @pytest.fixture
@@ -185,8 +250,30 @@ def test_oeffnen_ohne_xdg_open(system, monkeypatch, tmp_path):
         raise FileNotFoundError(2, "No such file or directory", befehl[0])
     monkeypatch.setattr(P.subprocess, "Popen", fehlt)
     system("linux")
-    with pytest.raises(OSError, match="^xdg-open fehlt, Paket xdg-utils installieren$"):
+    with pytest.raises(FileNotFoundError, match="^xdg-open fehlt, Paket xdg-utils installieren$"):
         P.oeffnen(tmp_path)
+
+
+def startet_nicht(fehler):
+    """Popen-Ersatz: das Programm ist da, laesst sich aber nicht starten."""
+    def popen(befehl, **optionen):
+        raise fehler
+    return popen
+
+
+@pytest.mark.parametrize("name, fehler, erwartet", [
+    ("linux", PermissionError(errno.EACCES, "Permission denied", "xdg-open"),
+     "xdg-open lässt sich nicht starten: Permission denied"),
+    ("darwin", OSError(errno.ENOMEM, "Cannot allocate memory"),
+     "open lässt sich nicht starten: Cannot allocate memory")])
+def test_oeffnen_programm_startet_nicht(system, monkeypatch, tmp_path, name, fehler, erwartet):
+    """Frueher hiess jeder OSError "xdg-open fehlt, Paket xdg-utils installieren", auch ohne Ausfuehrungsrechte oder
+    bei zu wenig Speicher; der Rat war dann falsch."""
+    monkeypatch.setattr(P.subprocess, "Popen", startet_nicht(fehler))
+    system(name)
+    with pytest.raises(OSError) as gefangen:
+        P.oeffnen(tmp_path)
+    assert str(gefangen.value) == erwartet and not isinstance(gefangen.value, FileNotFoundError)
 
 
 def test_oeffnen_laeuft_laenger_gilt_als_erfolg_ohne_zombie(system, monkeypatch, tmp_path):
@@ -242,17 +329,78 @@ def test_adresse_mac_und_linux_ueber_open(system, monkeypatch):
     assert all("env" in o for o in prozess.optionen)
 
 
-def test_adresse_windows_wie_bisher_ueber_webbrowser(system, monkeypatch):
-    import webbrowser
+@pytest.fixture
+def browser(monkeypatch):
+    """Nachgebildetes webbrowser.open: merkt sich die Adressen; ergebnis True (geoeffnet), False (kein Browser) oder
+    eine Ausnahme."""
     geoeffnet = []
-    monkeypatch.setattr(webbrowser, "open", geoeffnet.append)
 
-    def nicht_erwartet(*a, **kw):
-        raise AssertionError("unter Windows kein Unterprozess")
-    monkeypatch.setattr(P.subprocess, "Popen", nicht_erwartet)
+    def setzen(ergebnis=True):
+        def oeffnen(adresse):
+            geoeffnet.append(adresse)
+            if isinstance(ergebnis, Exception):
+                raise ergebnis
+            return ergebnis
+        monkeypatch.setattr(webbrowser, "open", oeffnen)
+        return geoeffnet
+    return setzen
+
+
+def kein_unterprozess(*a, **kw):
+    raise AssertionError("unter Windows kein Unterprozess")
+
+
+def test_adresse_windows_wie_bisher_ueber_webbrowser(system, monkeypatch, browser):
+    geoeffnet = browser(True)
+    monkeypatch.setattr(P.subprocess, "Popen", kein_unterprozess)
     system("win32")
     P.adresse_oeffnen("https://example.org/")
     assert geoeffnet == ["https://example.org/"]
+
+
+@pytest.mark.parametrize("ergebnis", [False, webbrowser.Error("could not locate runnable browser")])
+def test_adresse_windows_ohne_browser_ist_ein_fehler(system, monkeypatch, browser, ergebnis):
+    """Frueher galt der Klick auf den Update-Hinweis immer als Erfolg, auch wenn webbrowser nichts oeffnete."""
+    browser(ergebnis)
+    monkeypatch.setattr(P.subprocess, "Popen", kein_unterprozess)
+    system("win32")
+    with pytest.raises(OSError, match="^kein Browser gefunden$"):
+        P.adresse_oeffnen("https://example.org/")
+
+
+def xdg_open_fehlt(befehl, **optionen):
+    raise FileNotFoundError(errno.ENOENT, "No such file or directory", befehl[0])
+
+
+def test_adresse_ohne_xdg_open_ueber_webbrowser(system, monkeypatch, browser):
+    """Linux ohne xdg-utils: webbrowser findet vielleicht gio, x-www-browser oder firefox; frueher ging nichts auf."""
+    geoeffnet = browser(True)
+    monkeypatch.setattr(P.subprocess, "Popen", xdg_open_fehlt)
+    system("linux")
+    P.adresse_oeffnen("https://example.org/")
+    assert geoeffnet == ["https://example.org/"]
+
+
+def test_adresse_ohne_xdg_open_und_ohne_browser(system, monkeypatch, browser):
+    geoeffnet = browser(False)
+    monkeypatch.setattr(P.subprocess, "Popen", xdg_open_fehlt)
+    system("linux")
+    with pytest.raises(OSError, match="^xdg-open fehlt, Paket xdg-utils installieren$"):
+        P.adresse_oeffnen("https://example.org/")
+    assert geoeffnet == ["https://example.org/"]
+
+
+@pytest.mark.parametrize("popen", [startet_nicht(PermissionError(errno.EACCES, "Permission denied", "xdg-open")),
+                                   Prozess(4)])
+def test_adresse_webbrowser_nur_wenn_xdg_open_fehlt(system, monkeypatch, browser, popen):
+    """Startet xdg-open nicht oder meldet es einen Fehler, bleibt es dabei: webbrowser gaebe dem Browser die Umgebung
+    der App mit und soll nur einspringen, wenn es gar kein xdg-open gibt."""
+    geoeffnet = browser(True)
+    monkeypatch.setattr(P.subprocess, "Popen", popen)
+    system("linux")
+    with pytest.raises(OSError):
+        P.adresse_oeffnen("https://example.org/")
+    assert geoeffnet == []
 
 
 def test_fremde_umgebung_ohne_eigene_variablen(system, monkeypatch, eigene):
@@ -367,12 +515,40 @@ def test_certifi_liefert_eine_datei():
     assert datei and os.path.isfile(datei)
 
 
+def test_vorbereiten_ohne_fixture_eigene_hinterlaesst_nichts(system, monkeypatch, paket, certifi_nachbau):
+    """Wie test_bauen.py::test_linux_ohne_chromium_sandbox: vorbereiten() ohne die Fixture eigene, dazu setenv/delenv
+    auf eine Variable, die vorbereiten() gesetzt hat (monkeypatch stellt dann die "1" wieder her). Aufraeumen muss die
+    autouse-Fixture plattform_frisch in conftest.py; ob danach alles weg ist, prueft umgebung_bleibt_sauber."""
+    assert P._EIGENE == {}                                          # conftest: jeder Test beginnt ohne Merker
+    for name in PLATTFORM_VARIABLEN:
+        monkeypatch.delenv(name, raising=False)
+    system("linux")
+    P.vorbereiten()
+    assert set(P._EIGENE) == {"QTWEBENGINE_DISABLE_SANDBOX", "SSL_CERT_FILE"}
+    monkeypatch.setenv("QTWEBENGINE_DISABLE_SANDBOX", "0")
+    monkeypatch.delenv("QTWEBENGINE_DISABLE_SANDBOX")
+
+
+def test_conftest_kennt_jede_variable_aus_vorbereiten():
+    """plattform_frisch (conftest.py) raeumt nur die Variablen in PLATTFORM_VARIABLEN auf."""
+    gesetzt = set(re.findall(r'_setzen\("(\w+)"', inspect.getsource(P)))
+    assert gesetzt and gesetzt <= set(PLATTFORM_VARIABLEN)
+
+
+def gelaufen(aufrufe, code=0):
+    """subprocess.run-Ersatz fuer meldung(): merkt sich Befehl und Optionen, endet mit code."""
+    def run(befehl, **optionen):
+        aufrufe.append((befehl, optionen))
+        return subprocess.CompletedProcess(befehl, code)
+    return run
+
+
 def test_meldung_mac_ueber_osascript_text_als_argument(system, monkeypatch, capsys):
     """Anfuehrungszeichen, Backslash und AppleScript im Text: kommt unveraendert als eigenes Argument an, nie im
     Skript und nie ueber eine Shell."""
     aufrufe = []
     monkeypatch.setattr(P.shutil, "which", lambda name: "/usr/bin/" + name)
-    monkeypatch.setattr(P.subprocess, "run", lambda befehl, **optionen: aufrufe.append((befehl, optionen)))
+    monkeypatch.setattr(P.subprocess, "run", gelaufen(aufrufe))
     system("darwin")
     text = 'Ordner "Bücher\\neu" fehlt" & do shell script "x'
     P.meldung(text)
@@ -389,7 +565,7 @@ def test_meldung_mac_ueber_osascript_text_als_argument(system, monkeypatch, caps
 def test_meldung_linux_dialog_sonst_benachrichtigung(system, monkeypatch, vorhanden, programm):
     aufrufe = []
     monkeypatch.setattr(P.shutil, "which", lambda name: "/usr/bin/" + name if name in vorhanden else None)
-    monkeypatch.setattr(P.subprocess, "run", lambda befehl, **optionen: aufrufe.append((befehl, optionen)))
+    monkeypatch.setattr(P.subprocess, "run", gelaufen(aufrufe))
     system("linux")
     P.meldung("Ordner <A & B> fehlt")
     ((befehl, optionen),) = aufrufe
@@ -407,11 +583,39 @@ def test_meldung_linux_naechstes_programm_wenn_eins_nicht_startet(system, monkey
         aufrufe.append(befehl[0])
         if befehl[0] == "zenity":
             raise PermissionError(13, "Permission denied", "zenity")
+        return subprocess.CompletedProcess(befehl, 0)
     monkeypatch.setattr(P.shutil, "which", lambda name: "/usr/bin/" + name)
     monkeypatch.setattr(P.subprocess, "run", run)
     system("linux")
     P.meldung("Hinweis")
     assert aufrufe == ["zenity", "kdialog"]
+
+
+@pytest.mark.parametrize("code, versucht", [(0, ["zenity"]), (1, ["zenity"]), (255, ["zenity", "kdialog"]),
+                                            (-6, ["zenity", "kdialog"])])
+def test_meldung_linux_naechstes_programm_bei_fehlercode(system, monkeypatch, code, versucht):
+    """0 heisst bestaetigt, 1 geschlossen; mit anderem Code (kein Display, GTK-Fehler, Absturz) erschien kein Dialog.
+    Frueher galt die Meldung dann trotzdem als gezeigt."""
+    aufrufe = []
+
+    def run(befehl, **optionen):
+        aufrufe.append(befehl[0])
+        return subprocess.CompletedProcess(befehl, code if befehl[0] == "zenity" else 0)
+    monkeypatch.setattr(P.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(P.subprocess, "run", run)
+    system("linux")
+    P.meldung("Hinweis")
+    assert aufrufe == versucht
+
+
+def test_meldung_linux_alle_scheitern_text_bleibt_auf_stderr(system, monkeypatch, capsys):
+    aufrufe = []
+    monkeypatch.setattr(P.shutil, "which", lambda name: "/usr/bin/" + name)
+    monkeypatch.setattr(P.subprocess, "run", gelaufen(aufrufe, code=255))
+    system("linux")
+    P.meldung("Hinweis ohne Dialog")
+    assert [befehl[0] for befehl, _ in aufrufe] == ["zenity", "kdialog", "notify-send"]
+    assert "Hinweis ohne Dialog" in capsys.readouterr().err
 
 
 def test_zugriff_hinweis_je_system(system):

@@ -36,7 +36,7 @@ class TestArgumente:
         system("win32")
         a = self.args(tmp_path)
         assert "--onefile" in a and "webview.platforms.edgechromium" in a and "pythonnet" in a
-        assert a[-1].endswith("ui_app.py") and "--windowed" in a and "--noconfirm" in a
+        assert a[-1].endswith("start.py") and "--windowed" in a and "--noconfirm" in a
 
     def test_macos_app_mit_webkit(self, system, tmp_path):
         system("darwin")

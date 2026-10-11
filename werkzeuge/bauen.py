@@ -61,7 +61,8 @@ def pyinstaller_argumente(ausgabe: Path, arbeit: Path) -> list[str]:
         # GpuControl.CreateCommandBuffer" kommt unter xvfb sporadisch: ohne QtQuick 2 von 2, mit QtQuick 1 von 4 Laeufen,
         # also kein belegter Zusammenhang; der Start-Test zaehlt sie ("chromium_fehler").
         args += ["--exclude-module", "PySide6.QtQml"]
-    return args + [str(WURZEL / "ui_app.py")]
+    # Einstieg start.py: meldet auch Fehler beim Laden von ui_app und beendet Unterprozesse vor dem Import
+    return args + [str(WURZEL / "start.py")]
 
 
 def programm(ausgabe: Path) -> Path:

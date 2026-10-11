@@ -10,6 +10,7 @@ Sicherung/
 .pytest_cache/
 Einstellungen.json
 Einstellungen.json.tmp
+pdf2md-fehler.txt
 CLAUDE.local.md
 .claude/*
 !.claude/skills/
