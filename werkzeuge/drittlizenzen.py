@@ -122,8 +122,10 @@ def lizenztexte(dist: metadata.Distribution) -> list[tuple[str, str]]:
     return texte
 
 
-def einleitung(system: str = sys.platform) -> list[str]:
-    """Kopf der Datei: was im Programm steckt und was das System beisteuert (je Betriebssystem verschieden)."""
+def einleitung(system: str = sys.platform, chromium_beiliegend: bool = True) -> list[str]:
+    """Kopf der Datei: was im Programm steckt und was das System beisteuert (je Betriebssystem verschieden).
+    chromium_beiliegend=False: Probe-Paket, bei dem das Erzeugen von CHROMIUM-LIZENZEN.txt scheiterte (bauen.paket
+    warnt dann nur); der Kopf sagt das, statt auf eine fehlende Datei zu verweisen."""
     if system == "win32":
         programm, anzeige = "Die Programmdatei pdf2md.exe", [
             "Nicht enthalten, sondern vom System genutzt: Microsoft Edge WebView2 (Teil von Windows 10/11)."]
@@ -138,7 +140,9 @@ def einleitung(system: str = sys.platform) -> list[str]:
             "https://download.qt.io/official_releases/QtForPython/. Die Texte der LGPL 3.0 und der GPL 3.0 stehen unten.",
             "Qt WebEngine enthält Chromium. Die Lizenztexte von Chromium und der Bestandteile Dritter, die Chromium und",
             "Qt mitbringen (z.B. Blink, V8, zlib, FreeType, HarfBuzz, libpng, PCRE2, ICU, libtiff, libwebp), stehen",
-            "vollständig in der Datei CHROMIUM-LIZENZEN.txt neben dieser Datei."]
+            "vollständig in der Datei CHROMIUM-LIZENZEN.txt neben dieser Datei." if chromium_beiliegend else
+            "nicht in diesem Probe-Paket (CHROMIUM-LIZENZEN.txt fehlt), sondern bei Qt unter",
+            *([] if chromium_beiliegend else ["https://doc.qt.io/qt-6/qtwebengine-licensing.html."])]
     return ["pdf2md – Lizenzen der mitgelieferten Bestandteile", "",
             f"pdf2md selbst steht unter der MIT-Lizenz (Datei LICENSE). {programm} enthält außerdem die",
             "folgenden Bestandteile Dritter. Ihre Lizenztexte stehen unten vollständig.", "", *anzeige,
@@ -176,7 +180,7 @@ def python_lizenz() -> Path | None:
 def main() -> None:
     ziel = Path(sys.argv[1])
     trenner = "=" * 79
-    teile = einleitung()
+    teile = einleitung(chromium_beiliegend=(ziel.parent / "CHROMIUM-LIZENZEN.txt").is_file())
     pakete = abhaengigkeiten()
     teile.append(f"Python {sys.version.split()[0]} – Python Software Foundation License")
     for dist in pakete:

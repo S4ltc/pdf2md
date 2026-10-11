@@ -608,6 +608,12 @@ class TestAufruf:
         assert set(re.findall(r"steps\.qt\.outputs\.(\w+)", schluessel)) == set(felder)
         assert "hashFiles('werkzeuge/chromium_lizenzen.py')" in schluessel
         assert "path: CHROMIUM-LIZENZEN.txt" in schluessel and bauen.CHROMIUM_LIZENZEN.name == "CHROMIUM-LIZENZEN.txt"
+        # Push (ohne Tag) baut bei einem Fehlschlag weiter (bauen.paket warnt nur), ein Release bricht ab; gespeichert
+        # wird nur ein erfolgreich erzeugter Text, und das Paket haengt an keiner Bedingung
+        for n in ("Versionen für die Chromium-Lizenzen", "Chromium-Lizenzen erzeugen"):
+            assert "continue-on-error: ${{ !inputs.tag }}" in schritte[namen.index(n)]
+        assert "steps.chromium_erzeugen.outcome == 'success'" in schritte[namen.index("Chromium-Lizenzen in den Cache")]
+        assert "\n        if:" not in schritte[namen.index("Paket")]
 
 
 class TestPaket:

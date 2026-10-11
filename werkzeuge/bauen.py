@@ -656,8 +656,9 @@ def _packen(ordner: Path, stamm: Path) -> Path:
 HINWEIS_LAENGE = 3000      # GitHub kuerzt einen Hinweis nach rund 4000 Zeichen (gemessen: 4062), laengere werden geteilt
 
 
-CHROMIUM_AUFGABE = ("Chromium-Lizenzen im Linux-Paket nur als Verweis. Vor dem finalen Release (nach dem Test auf "
-                    "echten Geraeten) als Volltext aufnehmen, siehe CLAUDE.md, Abschnitt Offene Aufgaben.")
+CHROMIUM_AUFGABE = ("Im Linux-Paket fehlen die Chromium-Lizenzen als Volltext (CHROMIUM-LIZENZEN.txt fehlt oder "
+                    "enthaelt keinen Chromium-Text). Erzeugen mit werkzeuge/chromium_lizenzen.py, siehe Skill "
+                    "pakete-bauen.")
 
 
 def funktionstest_hinweis(d: dict) -> tuple[str, str]:

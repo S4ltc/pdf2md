@@ -1821,7 +1821,7 @@ def namen_reparieren(lauf: str, plan: list[dict] | None = None, abbrechen=None) 
     return erledigt
 
 
-LITERATURLISTE = "Literatur.bib"     # neben dem Programm, Werkzeug "Literaturliste exportieren"
+LITERATURLISTE = "Literatur.bib"     # neben dem Ordner Fertig, Werkzeug "Literaturliste exportieren"
 
 
 def _bibtex_aus_kopf(werte: dict) -> str | None:

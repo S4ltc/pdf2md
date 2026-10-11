@@ -46,7 +46,7 @@ def web_ordner() -> Path:
 
 
 def extern_oeffnen(pfad: Path) -> None:
-    """Datei oder Ordner mit dem Standardprogramm oeffnen (PDF-Leser, Editor, Explorer); Tests ersetzen das."""
+    """Datei oder Ordner mit dem Standardprogramm oeffnen (PDF-Leser, Editor, Explorer/Finder/Dateimanager); Tests ersetzen das."""
     plattform.oeffnen(pfad)
 
 
@@ -203,7 +203,7 @@ class Api:
         return {"ok": True, "datei": pfad.name}
 
     def ordner_oeffnen(self, bereich: str) -> dict:
-        """Oeffnet Eingang, Prüfen oder Fertig im Explorer (legt den Ordner bei Bedarf an)."""
+        """Oeffnet Eingang, Prüfen oder Fertig im Explorer/Finder/Dateimanager (legt den Ordner bei Bedarf an)."""
         if bereich not in BEREICHE:
             return {"ok": False, "grund": "unbekannter Bereich"}
         ordner = ordner_von(bereich)

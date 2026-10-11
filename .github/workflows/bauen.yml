@@ -72,6 +72,7 @@ jobs:
       - name: Versionen für die Chromium-Lizenzen
         id: qt
         if: runner.os == 'Linux'
+        continue-on-error: ${{ !inputs.tag }}
         shell: bash
         run: python werkzeuge/chromium_lizenzen.py --versionen | tee -a "$GITHUB_OUTPUT"
 

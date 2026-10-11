@@ -308,6 +308,14 @@ class TestLizenzen:
         assert programm in text and engine in text
         assert ("WebView2" in text) == (name == "win32")
 
+    def test_einleitung_linux_ohne_chromium_datei(self, drittlizenzen):
+        """Probe-Paket, bei dem das Erzeugen scheiterte: kein Verweis auf eine fehlende Datei, sondern auf Qt."""
+        mit = "\n".join(drittlizenzen.einleitung("linux"))
+        ohne = "\n".join(drittlizenzen.einleitung("linux", chromium_beiliegend=False))
+        assert "neben dieser Datei" in mit and "qtwebengine-licensing" not in mit
+        assert "nicht in diesem Probe-Paket" in ohne and "qtwebengine-licensing" in ohne
+        assert "neben dieser Datei" not in ohne
+
     @staticmethod
     def abschnitt(kopf, inhalt):
         return f"{'=' * 79}\n{kopf}\n{'=' * 79}\n{inhalt}\n"

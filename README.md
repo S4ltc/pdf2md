@@ -9,6 +9,8 @@ Unterstützte Formate: **PDF, DOCX, PPTX, XLSX, EPUB, HTML**.
 
 ## Download
 
+### Windows
+
 1. Auf der Seite [Releases](https://github.com/S4ltc/pdf2md/releases/latest) die Datei `pdf2md-…-windows.zip`
    herunterladen.
 2. In einen eigenen Ordner entpacken, zum Beispiel `Dokumente\pdf2md` (nicht unter „Programme“: neben der `.exe`
@@ -21,15 +23,62 @@ digital signiert ist: „Weitere Informationen“ → „Trotzdem ausführen“.
 Prüfsumme mit `SHA256SUMS.txt` aus dem Release (`Get-FileHash pdf2md-…-windows.zip` in PowerShell). Die `.exe`
 entsteht automatisch auf einem Windows-Rechner von GitHub aus genau diesem Quellcode (`.github/workflows/release.yml`).
 
-**macOS und Linux (Vorschau):** Im Release liegen auch `pdf2md-…-macos-arm64.zip` (Apple Silicon),
-`…-macos-intel.zip` und `…-linux-x86_64.tar.xz`. Sie werden bei jedem Build auf GitHub automatisch gestartet und
-geprüft (siehe [macOS und Linux](#macos-und-linux-vorschau)), sind auf echten Geräten aber noch nicht von Hand
-getestet. macOS: die App ist nicht notarisiert, nach dem ersten Öffnungsversuch Systemeinstellungen → Datenschutz &
-Sicherheit → „Dennoch öffnen“. Die Arbeitsordner entstehen dort im Dokumente-Ordner unter `pdf2md`.
+### macOS und Linux (Vorschau, ab Version 1.2.0)
 
-**Updates:** Oben im Fenster steht die Versionsnummer. Gibt es auf GitHub eine neuere Version, erscheint daneben
-„Version … verfügbar“; ein Klick öffnet die Release-Seite. Zum Aktualisieren das neue ZIP herunterladen und nur
-`pdf2md.exe` ersetzen. Die Ordner (`Eingang`, `Fertig`, `Prüfen`, `Sicherung`), `Protokoll.csv` und
+Pakete für macOS und Linux liegen ab Version 1.2.0 im Release; bis Version 1.1.0 gibt es nur die Windows-Fassung.
+
+| Datei | Für | Größe (laut Messung beim Bauen) |
+|---|---|---|
+| `pdf2md-…-macos-arm64.zip` | Mac mit Apple Silicon, macOS 14 (Sonoma) oder neuer | rund 81 MB, entpackt rund 200 MB |
+| `pdf2md-…-macos-intel.zip` | Mac mit Intel-Prozessor, macOS 14 (Sonoma) oder neuer | rund 82 MB, entpackt rund 190 MB |
+| `pdf2md-…-linux-x86_64.tar.xz` | Linux x86_64 mit glibc ab 2.35, z. B. Ubuntu 22.04, Debian 12, Fedora 40, Linux Mint 21 oder neuer | rund 195 MB, entpackt rund 610 MB |
+
+„Vorschau“ heißt: Jeder Build auf GitHub startet die Pakete und lässt sie eine erfundene PDF und DOCX umwandeln, das
+Linux-Paket startet zusätzlich unter Ubuntu 24.04, Debian 12 und Fedora 41 (siehe
+[macOS und Linux](#macos-und-linux-vorschau)). Von Hand auf echten Geräten getestet sind sie noch nicht; wer dabei
+helfen möchte, findet Ablauf und Prüfliste in [`docs/testplan-mac-linux.md`](docs/testplan-mac-linux.md).
+
+**Erster Start auf dem Mac:**
+
+1. Das ZIP öffnen (es entpackt sich in einen Ordner `pdf2md`) und `pdf2md.app` in den Ordner „Programme“ ziehen.
+2. Doppelklicken. Die App ist nicht notarisiert, deshalb meldet macOS, dass sie nicht geprüft werden kann. Dann
+   Systemeinstellungen → Datenschutz & Sicherheit → bei pdf2md „Dennoch öffnen“ und mit dem Administratorpasswort
+   bestätigen.
+3. Meldet macOS stattdessen, die App sei „beschädigt“: im Terminal
+   `xattr -dr com.apple.quarantine /Applications/pdf2md.app` ausführen und die App erneut öffnen.
+4. Die Frage nach dem Zugriff auf den Ordner Dokumente erlauben: Dort legt pdf2md den Ordner `pdf2md` mit den
+   Arbeitsordnern an. Wer abgelehnt hat, bekommt beim Start eine Meldung und erlaubt den Zugriff unter
+   Systemeinstellungen → Datenschutz & Sicherheit → Dateien und Ordner.
+
+**Linux:** entpacken und starten.
+
+```sh
+tar -xJf pdf2md-…-linux-x86_64.tar.xz
+./pdf2md-…-linux-x86_64/pdf2md/pdf2md
+```
+
+Das Archiv legt alles in einen eigenen Ordner `pdf2md-…-linux-x86_64` (darin der Programmordner `pdf2md`, die
+Lizenzen und `LIESMICH.txt`). Die Arbeitsordner entstehen im Dokumente-Ordner unter `pdf2md`. Fehlt beim Start eine
+Bibliothek, meist `libxcb-cursor0` (Debian, Ubuntu) bzw. `xcb-util-cursor` (Fedora) nachinstallieren. Bleibt das
+Fenster leer, schwarz oder ohne Titelleiste, nacheinander `QT_QPA_PLATFORM=xcb` und
+`QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu` vor den Aufruf setzen (zum Beispiel
+`QT_QPA_PLATFORM=xcb ./pdf2md-…-linux-x86_64/pdf2md/pdf2md`); eine Rückmeldung, was geholfen hat, ist willkommen.
+
+**Prüfsummen:** Auf dem Mac `shasum -a 256 pdf2md-…-macos-arm64.zip` und den Wert mit der Zeile in `SHA256SUMS.txt`
+vergleichen; unter Linux im Download-Ordner `sha256sum -c SHA256SUMS.txt --ignore-missing`.
+
+**Startet pdf2md nicht** (alle Systeme), erscheint eine Meldung, und die Einzelheiten stehen in `pdf2md-fehler.txt`
+in der Ablage (Windows neben `pdf2md.exe`, Mac und Linux in `Dokumente/pdf2md`), sonst im Temp-Ordner; die Meldung
+nennt den Pfad. Unter Linux zeigen sie zenity, kdialog oder notify-send, je nachdem, was installiert ist; auf Mac und
+Linux steht sie zusätzlich in der Terminalausgabe. Die Datei enthält Pfade mit dem Benutzernamen: vor dem Weitergeben
+schwärzen.
+
+### Updates
+
+Oben im Fenster steht die Versionsnummer. Gibt es auf GitHub eine neuere Version, erscheint daneben
+„Version … verfügbar“; ein Klick öffnet die Release-Seite. Zum Aktualisieren das neue Paket herunterladen und nur das
+Programm ersetzen: `pdf2md.exe`, auf dem Mac `pdf2md.app` in „Programme“, unter Linux den Ordner
+`pdf2md-…-linux-x86_64`. Die Ordner (`Eingang`, `Fertig`, `Prüfen`, `Sicherung`), `Protokoll.csv` und
 `Einstellungen.json` bleiben, wie sie sind; neue Standardwerte greifen von selbst, weil nur Abweichungen gespeichert
 werden. Danach unter Werkzeuge → „Text erneuern“ die vorhandenen Bücher mit dem neuen Verfahren umwandeln lassen.
 
@@ -47,23 +96,25 @@ werden. Danach unter Werkzeuge → „Text erneuern“ die vorhandenen Bücher m
 
 ## Benutzen (`pdf2md.exe`)
 
-`pdf2md.exe` doppelklicken: es öffnet sich ein Fenster (hell oder dunkel wie Windows), in dem alles bedient wird.
+`pdf2md.exe` doppelklicken (Mac: `pdf2md.app` öffnen, Linux: `pdf2md/pdf2md` starten): es öffnet sich ein Fenster
+(hell oder dunkel wie das System), in dem alles bedient wird.
 
-1. **Hinzufügen …** (Strg+O) oder Dateien bzw. einen Ordner **ins Fenster ziehen**: die Dateien werden nach `Eingang`
-   kopiert (das Original bleibt, wo es ist; bei gleichem Namen kommt ` (2)` dazu). Dateien direkt in den Ordner
-   `Eingang` neben der `.exe` zu legen, geht weiterhin.
-2. **Starten** (Strg+Enter): verarbeitet alles in `Eingang` und übernimmt fertig ausgefüllte Dateien aus `Prüfen`.
+1. **Hinzufügen …** (Strg+O, Mac: ⌘O) oder Dateien bzw. einen Ordner **ins Fenster ziehen**: die Dateien werden nach
+   `Eingang` kopiert (das Original bleibt, wo es ist; bei gleichem Namen kommt ` (2)` dazu). Dateien direkt in den
+   Ordner `Eingang` zu legen, geht weiterhin.
+2. **Starten** (Strg+Enter, Mac: ⌘↩): verarbeitet alles in `Eingang` und übernimmt fertig ausgefüllte Dateien aus
+   `Prüfen`.
    Je Datei zeigt die Spalte Eingang Phase und Fortschritt (Seite x von y), unten steht das Laufprotokoll.
    **Abbrechen** greift nach der aktuellen Datei. Schließt man das Fenster während eines Laufs, fragt es nach.
 
 | Bereich | Inhalt |
 |---|---|
-| **Übersicht** | Drei Spalten: Eingang (Name, Format, Größe), Prüfen (Grund, „bereit zur Übernahme“, sobald der Kopfblock vollständig ist), Fertig (neuer Name, Neueste oben, Filterfeld). Ein Klick auf den Namen öffnet die Datei mit dem Standardprogramm (in Prüfen und Fertig die `.md`, zum Beispiel um den Kopfblock zu ergänzen), das Formatkürzel daneben („PDF“) das Original; „Ordner“ im Spaltenkopf öffnet den Ordner im Explorer. Während eines Laufs steht die aktuelle Datei oben, darunter der Stand je Datei (fertig, nach Prüfen, Fehler). Darunter vier Kennzahlen und zwei kleine Diagramme. Die Listen aktualisieren sich selbst, wenn sich die Ordner ändern. |
+| **Übersicht** | Drei Spalten: Eingang (Name, Format, Größe), Prüfen (Grund, „bereit zur Übernahme“, sobald der Kopfblock vollständig ist), Fertig (neuer Name, Neueste oben, Filterfeld). Ein Klick auf den Namen öffnet die Datei mit dem Standardprogramm (in Prüfen und Fertig die `.md`, zum Beispiel um den Kopfblock zu ergänzen), das Formatkürzel daneben („PDF“) das Original; „Ordner“ im Spaltenkopf öffnet den Ordner im Explorer (Mac: Finder, Linux: Dateimanager). Während eines Laufs steht die aktuelle Datei oben, darunter der Stand je Datei (fertig, nach Prüfen, Fehler). Darunter vier Kennzahlen und zwei kleine Diagramme. Die Listen aktualisieren sich selbst, wenn sich die Ordner ändern. |
 | **Auswertung** | Bestand und Durchsatz (Dateien je Bereich, Formate, Seiten pro Minute je Lauf, Dauer gegen Seitenzahl), Metadaten-Qualität (Herkunft von Titel/Autor/Jahr, häufigste Prüfgründe, Anteil mit vollständiger IEEE-Quellenangabe), Text-Qualität (je Punkt Wert und höchstmögliche Anzahl, etwa „1.237 / 10.083 Formelzeilen“ unsicher markiert, gezählt über die Bücher, bei denen das Verfahren lief, dazu die Bücher mit den meisten offenen Stellen). |
 | **Einstellungen** | Alle Schalter und Schwellen (siehe unten), mit Tooltip nach kurzem Verweilen. |
 | **Werkzeuge** | Letzten Lauf rückgängig machen, Namen reparieren, Text erneuern, Literaturliste exportieren (BibTeX, siehe [Quellenangabe](#quellenangabe-ieee-apa-7-din-iso-690-bibtex)) (je mit Tooltip): jeweils erst eine vollständige Vorschau, ausgeführt wird erst nach Bestätigung. |
 
-Ergebnis, neben der `.exe`:
+Ergebnis, neben der `.exe` (Mac und Linux: im Dokumente-Ordner unter `pdf2md`):
 
 | Ordner / Datei | Inhalt |
 |---|---|
@@ -448,7 +499,7 @@ erneuern“ die Angaben der vorhandenen PDFs im neuen Stil.
 **BibTeX:** Zusätzlich steht ein BibTeX-Eintrag im Kopfblock (`bibtex:`, abschaltbar), zum Beispiel
 `@book{muster2016beispielkunde, author = {Muster, Hans Dieter and Beispiel, Stefan}, title = {{Beispielkunde}}, …}`,
 bei Normen `@standard{…}`. Werkzeuge → **Literaturliste exportieren** schreibt alle Bücher und Normen aus `Fertig` in
-eine Datei `Literatur.bib` neben dem Programm (eine vorhandene wird ersetzt), zum Import in Citavi, Zotero oder
+eine Datei `Literatur.bib` neben dem Ordner `Fertig` (eine vorhandene wird ersetzt), zum Import in Citavi, Zotero oder
 LaTeX; ältere `.md` ohne BibTeX-Feld werden dafür aus dem Kopfblock zusammengesetzt. Die Vorschau zeigt den
 Zitierschlüssel jeder Datei, gleiche Schlüssel bekommen `b`, `c` … angehängt.
 
@@ -540,6 +591,8 @@ Repository):
 | `einstellungen_liste.py` | schreibt `docs/einstellungen.md` (alle Einstellungen mit Bereich und Tooltip) |
 | `haertetest.py <ziel>` | erzeugt Grenzfälle aller Formate und lässt sie wie im Fenster durchlaufen |
 | `drittlizenzen.py <datei>` | schreibt die Lizenzen aller in der `.exe` enthaltenen Bestandteile |
+| `chromium_lizenzen.py <datei>` | schreibt `CHROMIUM-LIZENZEN.txt` für das Linux-Paket (in der Build-Umgebung unter Linux, lädt die Quellen von Qt WebEngine) |
+| `testdateien.py <ordner>` | legt die erfundene PDF und DOCX für den Funktionstest an (braucht `requirements-dev.txt`) |
 | `exe_pruefen.py <exe> --benutzer [wort ...]` | sucht in einer gebauten `.exe` nach persönlichen Zeichenketten |
 
 ## Selbst bauen / weiterentwickeln
@@ -549,28 +602,59 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 
 Das Skript legt die virtuelle Umgebung unter `%LOCALAPPDATA%\pdf2md-venv` an (bewusst außerhalb von OneDrive)
-und erzeugt `dist\pdf2md.exe` (Fenster-Anwendung, Einstieg `ui_app.py`, ohne Konsole). Läuft `pdf2md.exe` noch, bricht
+und erzeugt `dist\pdf2md.exe` (Fenster-Anwendung, Einstieg `start.py`, ohne Konsole). Läuft `pdf2md.exe` noch, bricht
 es ab. Ohne Build: `python ui_app.py` (mit `PDF2MD_ABLAGE=<ordner>` auf eine andere Ablage, zum Beispiel eine Kopie).
+
+`start.py` ist der Einstieg des gebauten Programms auf allen Systemen: Es ruft zuerst
+`multiprocessing.freeze_support()` auf (die Unterprozesse starten überall mit spawn und enden dort, bevor die großen
+Pakete geladen sind) und meldet auch einen Fehler beim Laden von `ui_app`, mit dem Traceback in `pdf2md-fehler.txt`.
 
 ### macOS und Linux (Vorschau)
 
 Alles, was je System anders ist, steht in `plattform.py` (Anzeige: WebKit auf dem Mac, QtWebEngine über PySide6
-unter Linux, sonst WebKitGTK; Dateien öffnen, ein Fenster je Ordner, helles/dunkles Thema, Ort der Ablage).
-Gebaut wird mit `werkzeuge/bauen.py` (gemeinsam für alle Systeme; `build.ps1` ruft es unter Windows auf):
+unter Linux, sonst WebKitGTK; Dateien öffnen samt Meldung, wenn es nicht geht; Meldungen ohne Fenster über osascript,
+zenity, kdialog oder notify-send; ein Fenster je Ordner, helles/dunkles Thema, Ort der Ablage; Umgebung für gestartete
+Systemprogramme ohne die Bibliothekspfade des Pakets). In der gebauten App unter macOS und Linux zeigt
+`SSL_CERT_FILE` auf die Wurzelzertifikate von certifi, damit Crossref, DNB und die Update-Suche auch dort HTTPS
+sprechen, wo das System seine Zertifikate an anderer Stelle hat als der Build-Rechner. Gebaut wird mit
+`werkzeuge/bauen.py` (gemeinsam für alle Systeme; `build.ps1` ruft es unter Windows auf):
 
 - **Tests** laufen bei jedem Push auf Windows, macOS und Linux (`.github/workflows/tests.yml`).
 - **Builds mit Start-Test** laufen bei jedem Push für Windows, macOS (Apple Silicon und Intel) und Linux
-  (`.github/workflows/bauen.yml`): das gebaute Programm wird gestartet, und erst wenn die Oberfläche ihre
-  Versionsnummer über die Python-Schnittstelle geholt hat, gilt der Start als gelungen (Anzeige-Engine, Oberfläche
-  und Schnittstelle laufen). Unter Linux geschieht das auf einem virtuellen Bildschirm. Das Ergebnis steht als
-  Hinweis am Lauf.
-- **Nicht geprüft** ist die Bedienung auf echten Mac- und Linux-Rechnern (Ziehen ins Fenster, Dialoge, Darstellung).
+  (`.github/workflows/bauen.yml`), Zeitlimit 420 s. Das Ergebnis steht als Hinweis am Lauf.
+  - **Phase 1:** Das gebaute Programm wird gestartet, und erst wenn die Oberfläche ihre Versionsnummer
+    über die Python-Schnittstelle geholt hat, gilt der Start als gelungen (Anzeige-Engine, Oberfläche und
+    Schnittstelle laufen). Unter Linux geschieht das auf einem virtuellen Bildschirm. Findet das Programm unter macOS
+    oder Linux keine Wurzelzertifikate, kommt eine Warnung dazu.
+  - **Phase 2 (Funktionstest):** `werkzeuge/testdateien.py` erzeugt eine erfundene PDF und DOCX, das gebaute Programm
+    wandelt sie auf demselben Weg um wie die Oberfläche. Geprüft werden Ablage und Protokoll, die Felder im Kopfblock
+    (Titel, Autor, Jahr, Textquelle, entfernter Kolumnentitel), Rückgängig, die Kennzahlen in Unterprozessen und die
+    Referenzschriften der Formelreparatur. Abweichungen stehen vorerst nur als Warnung am Lauf, rot wird der
+    Start-Test allein durch Phase 1.
+- **Distributionstest** (Job `distributionen`): Das Linux-Paket wird wie von einem Nutzer entpackt und in Containern
+  mit Ubuntu 24.04, Debian 12 und Fedora 41 gestartet, in drei Stufen: Grundstock (GTK 3, Mesa, NSS usw.), dazu das
+  Paket aus `LIESMICH.txt`, dazu alle Qt-Pakete. Je Stufe stehen der Start-Test (Phase 1) und die mit `ldd`
+  gefundenen fehlenden Bibliotheken als Hinweis am Lauf. Nur zur Information, ein Fehlschlag hält kein Release auf.
+- **Paketbericht** (`paket.json`, Hinweis „Paket …“): Größe gepackt und entpackt, größte Dateien, Lizenzen und die
+  gemessene Mindestversion des Systems, `macos_minos` (höchstes `minos` aller Mach-O-Dateien, `otool -l`) bzw.
+  `glibc_max` (höchste GLIBC-Symbolversion aller ELF-Dateien, `objdump -T` oder `readelf -V`). Auf dem Mac trägt der
+  Bau diesen Wert als `LSMinimumSystemVersion` in die `Info.plist` ein, dazu `NSDocumentsFolderUsageDescription` (Text
+  der Frage nach dem Ordner Dokumente). Danach wird die App neu signiert (ad hoc); besteht die Signatur
+  `codesign --verify --deep --strict` nicht, scheitert der Bau.
+- **Linux-Archiv:** alles in einem Oberordner `pdf2md-<tag>-linux-x86_64/`, mit `CHROMIUM-LIZENZEN.txt`. Die Datei
+  erzeugt `werkzeuge/chromium_lizenzen.py` vor dem Paket: die Lizenztexte von Chromium (steckt in Qt WebEngine) und
+  der Bestandteile Dritter, die Qt mitbringt, aus den Quellen genau der installierten Fassung (Quellarchiv von Qt,
+  ersatzweise der Spiegel auf GitHub; das Ergebnis liegt im Cache von GitHub Actions).
+- **Nicht automatisch geprüft** ist, was nur auf echten Mac- und Linux-Rechnern passiert (erster Start mit Gatekeeper,
+  Frage nach dem Ordner Dokumente, Ziehen ins Fenster, Dialoge, echte Grafik und Wayland, Darstellung). Ablauf und
+  Prüfliste für diese Handtests: [`docs/testplan-mac-linux.md`](docs/testplan-mac-linux.md).
 
 Aus dem Quellcode starten: Python 3.13, `pip install -r requirements.txt`, `python ui_app.py`; die Ablage liegt dann
-neben dem Skript. Die gebaute App legt sie im Dokumente-Ordner an (`~/Documents/pdf2md`), weil das App-Paket bzw.
-`/usr`, `/opt` schreibgeschützt sind. Unter Linux schaltet `plattform.vorbereiten()` die Chromium-Sandbox von
-QtWebEngine ab (Ubuntu ab 23.10 sperrt sie sonst); das Fenster lädt nur die eigenen lokalen Dateien. Lizenz: Qt kommt
-über PySide6 (LGPL), deshalb ist das Linux-Paket ein Ordner mit austauschbaren Bibliotheken statt einer Datei.
+neben dem Skript. Die gebaute App legt sie im Dokumente-Ordner an (`~/Documents/pdf2md`, unter Linux der
+Dokumente-Ordner laut `xdg-user-dir`), weil das App-Paket bzw. `/usr`, `/opt` schreibgeschützt sind. Unter Linux
+schaltet `plattform.vorbereiten()` die Chromium-Sandbox von QtWebEngine ab (Ubuntu ab 23.10 sperrt sie sonst); das
+Fenster lädt nur die eigenen lokalen Dateien. Lizenz: Qt kommt über PySide6 (LGPL), deshalb ist das Linux-Paket ein
+Ordner mit austauschbaren Bibliotheken statt einer Datei.
 
 ### Einstellungen
 
@@ -585,15 +669,19 @@ abweichenden Werten erzeugt, steht das im Kopfblock (`einstellungen: "abweichend
 
 - **Tests:** laufen bei jedem Push auf `main` automatisch auf GitHub (`.github/workflows/tests.yml`).
 - **Release:** zuerst `VERSION` in `aktualisierung.py` erhöhen und committen, dann einen passenden Versions-Tag
-  pushen, z. B. `git tag v1.1.0` und `git push origin v1.1.0` (passen Tag und `VERSION` nicht, bricht der Ablauf ab,
+  pushen, z. B. `git tag v1.2.0` und `git push origin v1.2.0` (passen Tag und `VERSION` nicht, bricht der Ablauf ab,
   sonst würde die Update-Suche falsch melden). Dann baut GitHub für Windows, macOS
   (Apple Silicon, Intel) und Linux, lässt je System alle Tests in derselben Umgebung und den Start-Test laufen,
-  schreibt die Fremdlizenzen je System (`werkzeuge/drittlizenzen.py`) und legt das Release mit
-  `pdf2md-v1.1.0-windows.zip`, `…-macos-arm64.zip`, `…-macos-intel.zip`, `…-linux-x86_64.tar.xz` (jeweils mit
-  `LICENSE.txt`, `DRITTLIZENZEN.txt`, `LIESMICH.txt`) und `SHA256SUMS.txt` an.
-- **Offen vor dem finalen Release (Linux nicht mehr als Vorschau):** Die Lizenzen von Chromium (steckt in der
-  Linux-Anzeige Qt WebEngine) stehen bisher nur als Verweis auf die Qt-Seite in `DRITTLIZENZEN.txt`, nicht als
-  Volltext. Das ist vor dem finalen Release nachzuholen; bis dahin warnt jeder Release-Lauf („Chromium-Lizenzen …“).
+  startet das Linux-Paket zusätzlich auf drei Distributionen, schreibt die Fremdlizenzen je System
+  (`werkzeuge/drittlizenzen.py`, unter Linux dazu `werkzeuge/chromium_lizenzen.py`) und legt das Release mit
+  `pdf2md-v1.2.0-windows.zip`, `…-macos-arm64.zip`, `…-macos-intel.zip`, `…-linux-x86_64.tar.xz` (jeweils mit
+  `LICENSE.txt`, `DRITTLIZENZEN.txt`, `LIESMICH.txt`, das Linux-Paket zusätzlich mit `CHROMIUM-LIZENZEN.txt`) und
+  `SHA256SUMS.txt` an. Der Text des Releases kommt aus `.github/release-notes.md`.
+- **Chromium-Lizenzen:** Der Volltext der Lizenzen von Chromium (steckt in der Linux-Anzeige Qt WebEngine) und der
+  Drittbestandteile von Qt wird beim Bauen erzeugt (`CHROMIUM-LIZENZEN.txt`, siehe
+  [macOS und Linux](#macos-und-linux-vorschau)). Gelingt das nicht, bricht ein Release-Lauf ab, statt Chromium ohne
+  seine Lizenztexte weiterzugeben; ein Build bei einem Push baut das Paket trotzdem und warnt („Chromium-Lizenzen …“).
+  Der Paketbericht zeigt `chromium_volltext` und die Zahl der Bestandteile (`chromium_bestandteile`).
 - **Nichts Persönliches veröffentlichen:** Releases nur von GitHub bauen lassen, nicht die eigene `.exe` hochladen.
   Vor jedem Push prüfen: keine Pfade mit dem eigenen Benutzernamen, keine Kunden-/Abonummern aus Normen, kein
   Buch- oder Normtext und keine Titel der eigenen Bücher und Normen (Beispiele in Tests und Doku sind erfunden),
@@ -625,4 +713,6 @@ abweichenden Werten erzeugt, steht das im Kopfblock (`einstellungen: "abweichend
 
 pdf2md steht unter der [MIT-Lizenz](LICENSE). Die `.exe` enthält Bibliotheken und Schriften Dritter (unter anderem
 MarkItDown, PDFium/pypdfium2, pywebview, pypdf, NumPy, STIX- und DejaVu-Schriften), alle unter freizügigen Lizenzen;
-ihre Lizenztexte liegen dem Download als `DRITTLIZENZEN.txt` bei (erzeugt mit `werkzeuge/drittlizenzen.py`).
+ihre Lizenztexte liegen dem Download als `DRITTLIZENZEN.txt` bei (erzeugt mit `werkzeuge/drittlizenzen.py`). Das
+Linux-Paket enthält zusätzlich Qt (LGPL) und damit Chromium; dessen Lizenztexte und die der Drittbestandteile von Qt
+stehen in `CHROMIUM-LIZENZEN.txt` (erzeugt mit `werkzeuge/chromium_lizenzen.py`).
