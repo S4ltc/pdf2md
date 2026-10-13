@@ -11,6 +11,8 @@ Sicherung/
 Einstellungen.json
 Einstellungen.json.tmp
 pdf2md-fehler.txt
+Literatur.bib
+.pdf2md.lock
 CLAUDE.local.md
 .claude/*
 !.claude/skills/

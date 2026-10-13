@@ -20,6 +20,7 @@ from pathlib import Path
 
 SYSTEM = sys.platform           # "win32", "darwin" (macOS), "linux"
 _GRIFFE: list = []              # Mutex (Windows) bzw. offene Sperrdateien: halten, solange das Programm laeuft
+SPERRDATEI = ".pdf2md.lock"     # in der Ablage (macOS/Linux, einzelinstanz); steht in .gitignore
 _EIGENE: dict = {}              # Variablen aus vorbereiten(): nicht an Programme des Systems weitergeben
 OEFFNEN_WARTEN = 2.0            # Sekunden Warten auf open/xdg-open; laeuft es laenger, gilt es als geoeffnet
 
@@ -215,7 +216,7 @@ def einzelinstanz(basis: Path) -> bool:
         return True
     import fcntl
     Path(basis).mkdir(parents=True, exist_ok=True)
-    datei = open(Path(basis) / ".pdf2md.lock", "a+")
+    datei = open(Path(basis) / SPERRDATEI, "a+")
     try:
         fcntl.flock(datei, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as e:

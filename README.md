@@ -320,7 +320,6 @@ Der Dateiname lautet dann zum Beispiel `DIN EN ISO 12345 – Klebtechnik – Ein
 Ist der Name zu lang, bleiben Nummer und letzter Titelteil (der genaueste, oft „Teil 3: …“) stehen, die mittleren Teile
 fallen weg. Im Kopfblock steht zusätzlich `norm: "DIN EN ISO 12345:2023-07"`. Getestet an 56 Normen (1991 bis 2026):
 alle mit richtiger Nummer, Ausgabe und Titel erkannt. Abschalten: `NORMEN_ERKENNEN = False` in `pdf2md.py`.
-Doppelte und ältere Ausgaben liegen im Normen-Ordner unter `Duplikate\` (mit `LIESMICH.txt`, warum).
 
 ### Tabellen
 
@@ -542,7 +541,7 @@ Ordner kann nur ein Fenster offen sein (ein zweiter Start wird mit Hinweis abgew
 3. Für die Tests einmalig `%LOCALAPPDATA%\pdf2md-venv\Scripts\python.exe -m pip install -r requirements-dev.txt`.
 
 Was **nicht** im Repository liegt (steht in `.gitignore`): `dist\` samt `pdf2md.exe`, `Eingang`, `Fertig`, `Prüfen`,
-`Sicherung`, `Protokoll.csv` und `Einstellungen.json`. Die exe ist ein Build-Ergebnis (rund 94 MB, GitHub lehnt Dateien über 100 MB ab),
+`Sicherung`, `Protokoll.csv`, `Einstellungen.json` und `Literatur.bib`. Die exe ist ein Build-Ergebnis (rund 94 MB, GitHub lehnt Dateien über 100 MB ab),
 die Bücher gehören nicht ins Repository. Jeder PC hat deshalb seine eigenen Daten.
 
 **Achtung bei gemeinsam genutzten Ordnern (z. B. OneDrive):** `Protokoll.csv` speichert absolute Pfade. Rückgängig
@@ -555,7 +554,7 @@ Arbeit wieder pushen. Chats von Claude Code werden nicht zwischen PCs synchronis
 
 ## Tests
 
-Das Projekt hat eine automatische Testsuite (pytest, rund 505 Tests). Sie braucht keine echten Bücher: PDFs, DOCX und
+Das Projekt hat eine automatische Testsuite (pytest, rund 950 Tests). Sie braucht keine echten Bücher: PDFs, DOCX und
 EPUB werden von den Tests selbst erzeugt, alles läuft in einem temporären Ordner, nichts wird online abgefragt
 (Crossref und DNB werden nachgebildet).
 
@@ -582,7 +581,7 @@ Repository):
 | Skript | Zweck |
 |---|---|
 | `normen_lauf.py <ausgabe>` | alle Normen umwandeln, ohne sie zu verschieben, mit `zusammenfassung.json` |
-| `buecher_lauf.py <ausgabe>` | alle Bücher in `dist\Fertig` neu umwandeln (ohne Dateien über 150 MB) |
+| `buecher_lauf.py <ausgabe>` | alle Buch-PDFs im Ordner aus `BUECHER` umwandeln, ohne sie zu verschieben (ohne Dateien über 150 MB) |
 | `vergleich.py <alt> <neu>` | zwei Ausgabeordner zeilenweise vergleichen (alter Stand per `git archive` und `CODE_DIR`) |
 | `seitenpruefung.py <pdf-ordner>` | gedruckte Seitenzahlen gegen das Inhaltsverzeichnis prüfen |
 | `zitierpruefung.py <ausgabe> <pdf-ordner>` | zufällige Sätze der `.md` auf der angegebenen PDF-Seite suchen |

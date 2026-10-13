@@ -1,10 +1,11 @@
-"""Wandelt die Buecher in dist/Fertig neu um (nur lesend, ohne Dateien ueber 150 MB) und vergleicht
-grob mit der vorhandenen .md. Die neuen Texte landen im Ausgabeordner (enthalten Buchtext: nie ins Repo legen).
+"""Wandelt alle Buch-PDFs im Ordner BUECHER um, OHNE Originale zu verschieben (nur lesend, ohne Dateien ueber
+150 MB). Liegt neben einem PDF eine .md, vergleicht es grob mit ihr; sonst zaehlt alles als neu. Die neuen Texte
+landen im Ausgabeordner (enthalten Buchtext: nie ins Repo legen).
 Fuer einen Vorher/Nachher-Vergleich zwei Laeufe machen (alter Stand per `git archive` und CODE_DIR) und die beiden
 Ordner mit vergleich.py gegenueberstellen.
 
 Aufruf:  python werkzeuge/buecher_lauf.py <ausgabeordner> [muster]
-Umgebung: BUECHER (Ordner mit PDF + .md), CODE_DIR (anderer Code-Stand)."""
+Umgebung: BUECHER (Ordner mit den PDFs, Pflicht), CODE_DIR (anderer Code-Stand)."""
 import concurrent.futures as cf
 import json
 import os
@@ -14,7 +15,7 @@ from pathlib import Path
 
 CODE_DIR = os.environ.get("CODE_DIR", str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, CODE_DIR)
-BUECHER = Path(os.environ.get("BUECHER", str(Path(__file__).resolve().parent.parent / "dist" / "Fertig")))
+BUECHER = Path(os.environ["BUECHER"]) if os.environ.get("BUECHER") else None   # Ordner mit den Buch-PDFs
 MAX_GROESSE = 150_000_000      # das 160-MB-Handbuch bleibt aussen vor
 
 
@@ -37,6 +38,8 @@ def eins(pfad: str, out: str) -> dict:
 
 
 def main():
+    if BUECHER is None or not BUECHER.is_dir():
+        sys.exit("Bitte die Umgebungsvariable BUECHER auf den Ordner mit den Buch-PDFs setzen.")
     out = Path(sys.argv[1])
     out.mkdir(parents=True, exist_ok=True)
     muster = sys.argv[2] if len(sys.argv) > 2 else "*.pdf"
