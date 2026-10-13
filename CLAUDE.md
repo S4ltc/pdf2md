@@ -64,7 +64,7 @@ $py = "$env:LOCALAPPDATA\pdf2md-venv\Scripts\python.exe"   # in jedem PowerShell
 Pläne, Fallen und Aufwand stehen in `docs/claude/offene-aufgaben.md`; vor Beginn lesen. Dort ist getrennt, was der Nutzer entschieden hat und was nur Empfehlung ist (Empfehlungen vor Beginn bestätigen lassen). Erledigtes hier und dort streichen.
 
 - **CI an 7e25741 teilweise rot** (gelesen 2026-10-11):
-  - `tests.yml` auf macOS: `tests/test_pakete_system.py::TestDistributionen::test_drei_stufen_je_mit_ldd_und_start_test` scheitert. Vermutete Ursache, nicht geprüft: bash 3.2 kennt `globstar` nicht (`bauen.yml`, Skript `fehlend.sh`).
+  - `tests.yml` auf macOS: `test_drei_stufen_je_mit_ldd_und_start_test` scheiterte, weil bash 3.2 `globstar` nicht kennt. `fehlend.sh` fand dann die Qt-Bibliotheken nicht und meldete still „keine“. Behoben: `fehlend.sh` meldet jetzt „nicht geprüft“, und der Testnachbau braucht bash ab 4. Ob es grün ist, zeigt erst der nächste CI-Lauf; danach diesen Punkt streichen.
   - Job `distributionen`: ubuntu-24.04 startet in keiner Stufe, weil `libwayland-server.so.0` fehlt (auch mit allen Qt-Paketen). fedora-41 bricht mit „Could not initialize GLX“ ab. Grün ist der Job nur wegen `continue-on-error`. README und Testplan nennen beide Distributionen trotzdem als lauffähig.
 - **Chromium-Lizenzen als Volltext im Linux-Paket** (Nutzerentscheidung 2026-10-08: vor dem finalen Release, nach Schritt 3):
   - BSD, MIT und Apache verlangen bei Weitergabe den Lizenztext. `werkzeuge/chromium_lizenzen.py` erzeugt ihn in `bauen.yml`; Einzelheiten im Skill `pakete-bauen`.

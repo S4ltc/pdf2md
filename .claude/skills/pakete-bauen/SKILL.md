@@ -46,7 +46,7 @@ Hinweise am Lauf je Paket: „Start-Test NAME“, „Zertifikate NAME“ (nur Wa
   2. dazu das Paket aus `docs/LIESMICH.txt` (`libxcb-cursor0` bzw. `xcb-util-cursor`).
   3. dazu die übrigen Qt-Pakete des Build-Jobs.
 
-  Die Paketnamen je Distribution stehen in der Matrix; ändert sich LIESMICH, Stufe 2 anpassen. bauen.py läuft dort mit dem python3 des Containers als root: Start-Test und Hinweise dürfen nur die Standardbibliothek und Python 3.11 brauchen (ohne fpdf2/python-docx läuft dort nur Phase 1). Tests: `tests/test_pakete_system.py` stellt den Job in bash nach (Git Bash, braucht PyYAML aus `requirements-dev.txt`).
+  Die Paketnamen je Distribution stehen in der Matrix; ändert sich LIESMICH, Stufe 2 anpassen. bauen.py läuft dort mit dem python3 des Containers als root: Start-Test und Hinweise dürfen nur die Standardbibliothek und Python 3.11 brauchen (ohne fpdf2/python-docx läuft dort nur Phase 1). Tests: `tests/test_pakete_system.py` stellt den Job in bash nach (ab bash 4 wie in den Containern: Git Bash, unter macOS die von Homebrew, sonst übersprungen; braucht PyYAML aus `requirements-dev.txt`). Die Skripte des Jobs dürfen Funktionen ab bash 4 nutzen (`globstar`), müssen ein Fehlen aber melden statt still weniger zu prüfen.
 
 ## Chromium-Lizenzen (nur Linux)
 

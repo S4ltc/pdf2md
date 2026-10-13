@@ -237,7 +237,13 @@ jobs:
           fi
           intern="$ORDNER/pdf2md/_internal"
           export LD_LIBRARY_PATH="$intern:$intern/PySide6/Qt/lib"
-          shopt -s nullglob globstar
+          # ohne globstar (bash 3.2) faende ** nur eine Ebene, die Liste waere still leer
+          if ! shopt -s nullglob globstar 2> /dev/null; then
+            [ -e globstar-gemeldet ] ||
+              echo "::warning title=bash ohne globstar linux $DISTRO::bash $BASH_VERSION kennt globstar nicht, fehlende Bibliotheken nicht geprüft" >&2
+            touch globstar-gemeldet
+            exit 1
+          fi
           for datei in "$ORDNER/pdf2md/pdf2md" "$intern"/**/platforms/libqxcb.so "$intern"/**/libQt6WebEngineCore.so.*; do
             [ -L "$datei" ] && continue
             ldd "$datei" 2>&1 | grep "not found" | sed "s|^[[:space:]]*|${datei##*/}: |" || true

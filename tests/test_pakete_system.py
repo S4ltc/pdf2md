@@ -568,10 +568,18 @@ exec "$ECHTES_PYTHON" "$@"
 }
 
 
+def bash_ab_4(bash: str) -> bool:
+    lauf = subprocess.run([bash, "--noprofile", "--norc", "-c", 'echo "${BASH_VERSINFO[0]}"'],
+                          capture_output=True, text=True)
+    return lauf.stdout.strip().isdigit() and int(lauf.stdout) >= 4
+
+
 def git_bash() -> str | None:
-    """bash fuer die Shell-Teile des Workflows; unter Windows die von Git (System32\\bash.exe waere WSL)."""
+    """bash fuer die Shell-Teile des Workflows, ab Version 4 wie in den Containern (globstar); macOS bringt nur 3.2
+    mit, dann die von Homebrew. Unter Windows die von Git (System32\\bash.exe waere WSL)."""
     if sys.platform != "win32":
-        return shutil.which("bash")
+        kandidaten = [shutil.which("bash"), "/opt/homebrew/bin/bash", "/usr/local/bin/bash"]
+        return next((k for k in kandidaten if k and Path(k).is_file() and bash_ab_4(k)), None)
     git = shutil.which("git")
     kandidaten = ([Path(git).resolve().parent.parent / "bin" / "bash.exe"] if git else []) + [
         Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"]
@@ -612,12 +620,25 @@ def eintrag(job: dict, distro: str, **dazu) -> dict:
     return {k: (f"{v} {dazu[k]}" if k in dazu else v) for k, v in gefunden.items()}
 
 
-def job_nachstellen(job: dict, matrix: dict, arbeit: Path, unbekannt=(), mit_ldd=True) -> dict:
+OHNE_GLOBSTAR = r'''shopt() {   # wie bash 3.2 (macOS): globstar gibt es nicht, die uebrigen Schalter wirken trotzdem
+  local a
+  local weiter=()
+  for a in "$@"; do
+    if [ "$a" = globstar ]; then echo "bash: shopt: globstar: invalid shell option name" >&2; else weiter+=("$a"); fi
+  done
+  builtin shopt "${weiter[@]}"
+  [ ${#weiter[@]} -eq $# ]
+}
+export -f shopt
+'''
+
+
+def job_nachstellen(job: dict, matrix: dict, arbeit: Path, unbekannt=(), mit_ldd=True, ohne_globstar=False) -> dict:
     """Spielt die Schritte des Jobs fuer einen Matrix-Eintrag durch. unbekannt: Paketnamen, die apt-get/dnf nicht
-    kennen; mit_ldd=False: Container ohne ldd."""
+    kennen; mit_ldd=False: Container ohne ldd; ohne_globstar=True: bash ohne globstar (wie 3.2)."""
     bash = git_bash()
     if not bash:
-        pytest.skip("braucht bash (unter Windows Git Bash)")
+        pytest.skip("braucht bash ab 4 (unter Windows Git Bash, unter macOS die von Homebrew)")
     sim, ws = arbeit / "sim", arbeit / "ws"
     for ordner in (sim / "bin", sim / "installiert", ws):
         ordner.mkdir(parents=True)
@@ -654,7 +675,7 @@ def job_nachstellen(job: dict, matrix: dict, arbeit: Path, unbekannt=(), mit_ldd
             assert "${{" not in schritt["run"], name                  # Skripte lesen nur Umgebungsvariablen
             datei = sim / f"schritt{nummer}.sh"
             skript(datei, "".join(f"export {k}={shlex.quote(v)}\n" for k, v in umgebung.items())
-                   + "unset DISPLAY\n" + schritt["run"])
+                   + "unset DISPLAY\n" + (OHNE_GLOBSTAR if ohne_globstar else "") + schritt["run"])
             lauf = subprocess.run([bash, "--noprofile", "--norc", "-eo", "pipefail", bash_pfad(datei)], cwd=ws,
                                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
             ausgabe.append(lauf.stdout + lauf.stderr)
@@ -770,6 +791,17 @@ class TestDistributionen:
         hinweis = next(z for z in lauf["ausgabe"].splitlines() if "title=Fehlende Bibliotheken" in z)
         assert hinweis.count("nicht geprüft") == 3 and "ldd" not in hinweis
         assert len(stufen_ergebnisse(lauf["ausgabe"], "ubuntu-24.04")) == 3
+
+    @pytest.mark.langsam
+    def test_ohne_globstar_nicht_geprueft(self, distributionen, tmp_path):
+        """bash ohne globstar (macOS: 3.2) fand die Qt-Bibliotheken unter _internal/**/ nicht und meldete still
+        "keine" fehlende Bibliothek (tests auf macos-latest, 7e25741). Jetzt: eine Warnung und "nicht geprüft"."""
+        lauf = job_nachstellen(distributionen, eintrag(distributionen, "debian-12"), tmp_path, ohne_globstar=True)
+        assert lauf["ausgabe"].count("::warning title=bash ohne globstar linux debian-12::") == 1
+        hinweis = next(z for z in lauf["ausgabe"].splitlines() if "title=Fehlende Bibliotheken" in z)
+        assert hinweis.count("nicht geprüft") == 3 and "keine" not in hinweis
+        assert stufen_ergebnisse(lauf["ausgabe"], "debian-12") == [
+            ("Grundstock", "FEHLER"), ("Grundstock + Paket aus LIESMICH", "OK"), ("mit allen Qt-Paketen", "OK")]
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux") or not (shutil.which("objdump") and shutil.which("readelf")),
