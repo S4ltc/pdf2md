@@ -24,7 +24,10 @@ Quelle (Recherche 2026-10-10 an PySide6 6.12.0, PySide6_WebEngine 6.12.0.140 = Q
   Verzeichnisse, SPECIAL_CASES fuer Blink, V8, PDFium, ANGLE, PRUNE_PATHS, Shipped) liest dieses Werkzeug aber aus
   genau der verwendeten Quelle und wendet sie an.
 Gewaehlt: (c), ersatzweise GitHub. Versionsgenau heisst: CHROMIUM_VERSION der Quelle (Chromium-Basis und Stand der
-Sicherheitskorrekturen) stimmt mit dem ueberein, was die mitgelieferte Bibliothek meldet; sonst Abbruch. Ohne GN ist
+Sicherheitskorrekturen) stimmt mit dem ueberein, was die mitgelieferte Bibliothek meldet. Gibt es das nicht (am
+2026-10-11: Bibliothek Chromium 140.0.7339.225, alle Quellen 140.0.7339.264 beim gleichen Sicherheitsstand),
+genuegt nach Entscheidung des Nutzers (2026-10-15) eine Quelle mit gleichem Sicherheitsstand, deren Chromium nur in
+der Patch-Nummer abweicht; die Datei nennt die Abweichung. Sonst Abbruch. Ohne GN ist
 die Liste eine Obermenge (alle Bestandteile mit Shipped: yes, auch solche, die nur unter Windows, macOS oder Android
 gebaut werden). Bei Lizenzhinweisen ist das unschaedlich, fehlen darf dagegen nichts.
 
@@ -535,11 +538,21 @@ def chromium_kandidaten(v: Versionen) -> Iterator[Kandidat]:
         yield from verlauf_kandidaten(zweig)
 
 
-def chromium_quelle(v: Versionen, kandidaten: Iterator[Kandidat] | None = None) -> tuple[str, str]:
-    """(Beschreibung, Archiv) der ersten Quelle, deren CHROMIUM_VERSION genau zur Bibliothek passt. Eine Quelle,
-    die nicht erreichbar ist, wird uebersprungen; passt keine, bricht das Werkzeug mit der Liste aller ab."""
+def nur_patch_anders(stand: tuple[str, str], v: Versionen) -> bool:
+    """Gleicher Sicherheitsstand, Chromium bis auf die Patch-Nummer gleich (140.0.7339.264 statt .225)."""
+    basis, teile = stand[0].split("."), v.chromium.split(".")
+    return (bool(stand[1]) and stand[1] == v.sicherheit and len(basis) == len(teile) == 4
+            and basis[:3] == teile[:3] and basis[3] != teile[3])
+
+
+def chromium_quelle(v: Versionen, kandidaten: Iterator[Kandidat] | None = None) -> tuple[str, str, str | None]:
+    """(Beschreibung, Archiv, Abweichung) der Quelle fuer den Chromium-Baum. Zuerst zaehlt eine Quelle, deren
+    CHROMIUM_VERSION genau zur Bibliothek passt. Gibt es keine, genuegt die erste mit gleichem Sicherheitsstand,
+    deren Chromium nur in der Patch-Nummer abweicht (Nutzerentscheidung 2026-10-15; Abweichung = deren Chromium,
+    sonst None). Eine Quelle, die nicht erreichbar ist, wird uebersprungen; passt keine, bricht das Werkzeug mit der
+    Liste aller ab."""
     gesucht = (v.chromium, v.sicherheit)
-    gesehen = []
+    gesehen, ersatz = [], None
     folge = iter(chromium_kandidaten(v) if kandidaten is None else kandidaten)
     while True:
         try:
@@ -556,11 +569,16 @@ def chromium_quelle(v: Versionen, kandidaten: Iterator[Kandidat] | None = None) 
                 continue
             gesehen.append(f"  {kandidat.beschreibung}: Chromium {stand[0]}, Sicherheitsstand {stand[1] or '?'}")
             if stand == gesucht:
-                return kandidat.beschreibung, kandidat.archiv()
+                return kandidat.beschreibung, kandidat.archiv(), None
+            if ersatz is None and nur_patch_anders(stand, v):
+                ersatz = (kandidat, stand[0])               # weiter nach einer genau passenden suchen
         except Abbruch as e:
             gesehen.append(f"  {kandidat.beschreibung}: nicht erreichbar ({e})")
-    raise Abbruch(f"keine Quelle mit genau dem Chromium-Stand der Bibliothek (Qt WebEngine {v.webengine}, Chromium "
-                  f"{v.chromium}, Sicherheitsstand {v.sicherheit}) gefunden:\n" + "\n".join(gesehen))
+    if ersatz:
+        return ersatz[0].beschreibung, ersatz[0].archiv(), ersatz[1]
+    raise Abbruch(f"keine passende Quelle für den Chromium-Stand der Bibliothek (Qt WebEngine {v.webengine}, Chromium "
+                  f"{v.chromium}, Sicherheitsstand {v.sicherheit}; genau dieser Stand oder derselbe Sicherheitsstand "
+                  "mit anderer Patch-Nummer) gefunden:\n" + "\n".join(gesehen))
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -914,9 +932,10 @@ def zusammenfassen(bestandteile: list[Bestandteil]) -> list[Bestandteil]:
     return list(gesehen.values())
 
 
-def ausgabe(v: Versionen, quellen: list[str], bestandteile: list[Bestandteil]) -> str:
+def ausgabe(v: Versionen, quellen: list[str], bestandteile: list[Bestandteil], genau: bool = True) -> str:
     """Text der Datei: Kopf (Versionen, Quellen, Anzahlen fuer bauen.lizenzbericht), Uebersicht, dann jeder
-    verschiedene Lizenztext einmal mit allen Bestandteilen, die ihn nutzen, zuletzt die Bestandteile ohne Text."""
+    verschiedene Lizenztext einmal mit allen Bestandteilen, die ihn nutzen, zuletzt die Bestandteile ohne Text.
+    genau=False: die Chromium-Quelle weicht in der Patch-Nummer ab (steht in der Zeile "Quelle Chromium")."""
     bestandteile = zusammenfassen(bestandteile)
     gruppen: dict[str, list[Bestandteil]] = {}
     for b in bestandteile:
@@ -932,7 +951,8 @@ def ausgabe(v: Versionen, quellen: list[str], bestandteile: list[Bestandteil]) -
     kopf = ["pdf2md – Lizenzen von Chromium (in Qt WebEngine) und der Bestandteile Dritter in Qt", "",
             "Das Linux-Paket enthält Qt for Python (PySide6) mit Qt WebEngine, und Qt WebEngine enthält Chromium. Hier",
             "stehen die Lizenztexte von Chromium und aller Bestandteile Dritter, die Chromium und Qt mitbringen,",
-            "vollständig. Erzeugt mit werkzeuge/chromium_lizenzen.py aus den Quellen genau der mitgelieferten Fassungen.",
+            "vollständig. Erzeugt mit werkzeuge/chromium_lizenzen.py aus den Quellen "
+            + ("genau der mitgelieferten Fassungen." if genau else "der mitgelieferten Fassungen (Chromium: siehe unten)."),
             "Chromium nach den Regeln seiner tools/licenses/licenses.py (alle Bestandteile, die ausgeliefert werden",
             "können), Qt nach seinen qt_attribution.json. Die Liste ist eine Obermenge dessen, was unter Linux gebaut",
             "wird.", "",
@@ -956,15 +976,18 @@ def erzeugen(ziel: Path, v: Versionen | None = None) -> str:
     v = v or versionen()
     print(f"Qt {v.qt}, Qt WebEngine {v.webengine}, Chromium {v.chromium} (Sicherheitsstand {v.sicherheit}), "
           f"ICU {v.icu or '-'}", flush=True)
-    beschreibung, archiv = chromium_quelle(v)
-    print(f"Chromium: {beschreibung} -> {archiv}", flush=True)
+    beschreibung, archiv, abweichung = chromium_quelle(v)
+    print(f"Chromium: {beschreibung} -> {archiv}" + (f" (Chromium {abweichung})" if abweichung else ""), flush=True)
     baum = baum_lesen(archiv, chromium_pfad, chromium_behalten, lambda b: chromium_auswerten(b)[1],
                       chromium_nachsehen)
     bestandteile = chromium_auswerten(baum)[0]
     if not bestandteile[0].text or "The Chromium Authors" not in bestandteile[0].text:
         raise Abbruch(f"{archiv}: Lizenz des Chromium-Projekts (chromium/LICENSE) fehlt")
     quellen = [f"Quelle Chromium: {beschreibung}" + (f" ({archiv})" if archiv != beschreibung else "")
-               + "; CHROMIUM_VERSION stimmt mit der Bibliothek überein"]
+               + ("; CHROMIUM_VERSION stimmt mit der Bibliothek überein" if not abweichung else
+                  f"; CHROMIUM_VERSION der Quelle nennt Chromium {abweichung}, die Bibliothek {v.chromium}: gleicher "
+                  f"Sicherheitsstand {v.sicherheit}, nur die Patch-Nummer weicht ab (eine Quelle mit genau diesem "
+                  "Stand gibt es nicht)")]
     for modul in QT_MODULE:
         url, liste = qt_lesen(modul, v.qt)
         quellen.append(f"Quelle Qt ({modul}): {url}")
@@ -973,7 +996,7 @@ def erzeugen(ziel: Path, v: Versionen | None = None) -> str:
         url, icu = icu_lesen(v.icu)
         quellen.append(f"Quelle ICU: {url}")
         bestandteile.append(icu)
-    text = ausgabe(v, quellen, bestandteile)
+    text = ausgabe(v, quellen, bestandteile, genau=not abweichung)
     ziel.write_text(text, encoding="utf-8", newline="\n")
     kopf = text.split("\n\nÜbersicht", 1)[0]
     print(f"{ziel}: {ziel.stat().st_size // 1024} KB; "

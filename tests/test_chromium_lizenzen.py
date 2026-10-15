@@ -406,8 +406,8 @@ class TestQuelle:
         seiten |= self.github(tmp_path, f"v{WE}", (STAND[0], "149.0.1.1"), sha="aaaa")
         seiten |= self.github(tmp_path, WE, STAND, sha="bbbb")
         netz(seiten)
-        beschreibung, archiv = cl.chromium_quelle(VERSIONEN)
-        assert beschreibung == f"github.com/qt/qtwebengine {WE}"
+        beschreibung, archiv, abweichung = cl.chromium_quelle(VERSIONEN)
+        assert beschreibung == f"github.com/qt/qtwebengine {WE}" and abweichung is None
         assert archiv == "https://codeload.github.com/qt/qtwebengine-chromium/tar.gz/bbbb"
         text = cl.erzeugen(tmp_path / "aus.txt", VERSIONEN)
         assert f"Quelle Chromium: github.com/qt/qtwebengine {WE} ({archiv})" in text
@@ -421,7 +421,7 @@ class TestQuelle:
         seiten |= self.github(tmp_path, "c1", STAND, sha="cccc")
         netz(seiten)
         assert cl.chromium_quelle(VERSIONEN) == ("github.com/qt/qtwebengine c1",
-                                                 "https://codeload.github.com/qt/qtwebengine-chromium/tar.gz/cccc")
+                                                 "https://codeload.github.com/qt/qtwebengine-chromium/tar.gz/cccc", None)
 
     def test_reihenfolge_der_quellen(self):
         """Offizielles Quellarchiv zuerst (Ablage der fertigen Fassung 6.140.0 noch unbekannt: mit und ohne X.Y, bis
@@ -444,8 +444,50 @@ class TestQuelle:
         rc = (f"https://download.qt.io/development_releases/qtwebengine/{WE}-rc/"
               f"qtwebengine-everywhere-src-{WE}-rc.tar.xz")
         seiten = netz({rc: qt_quellarchiv(tmp_path)} | self.github(tmp_path, WE, STAND))
-        assert cl.chromium_quelle(VERSIONEN) == (rc, rc)
+        assert cl.chromium_quelle(VERSIONEN) == (rc, rc, None)
         assert seiten.abrufe(f"https://raw.githubusercontent.com/qt/qtwebengine/{WE}/CHROMIUM_VERSION") == 0
+
+    def test_gleicher_sicherheitsstand_andere_patchnummer(self, tmp_path, netz):
+        """Nutzerentscheidung 2026-10-15: Gibt es keine Quelle mit genau dem Stand der Bibliothek, genuegt eine mit
+        gleichem Sicherheitsstand, deren Chromium nur in der Patch-Nummer abweicht (CI an 7e25741: Bibliothek
+        140.0.7339.225, alle Quellen 140.0.7339.264 bei gleichem Sicherheitsstand). Die Datei sagt das offen."""
+        rc = (f"https://download.qt.io/development_releases/qtwebengine/{WE}-rc/"
+              f"qtwebengine-everywhere-src-{WE}-rc.tar.xz")
+        andere = ("140.0.1234.99", STAND[1])
+        seiten = netz({rc: qt_quellarchiv(tmp_path, andere), QTBASE: qtbase_archiv(tmp_path), ICU: "ICU"}
+                      | self.github(tmp_path, WE, andere))
+        assert cl.chromium_quelle(VERSIONEN) == (rc, rc, andere[0])
+        # die uebrigen Quellen wurden noch nach einem genauen Treffer durchsucht
+        assert seiten.abrufe(f"https://raw.githubusercontent.com/qt/qtwebengine/{WE}/CHROMIUM_VERSION") == 1
+        text = cl.erzeugen(tmp_path / "aus.txt", VERSIONEN)
+        kopf = text.split("\n\nÜbersicht", 1)[0]
+        assert "stimmt mit der Bibliothek überein" not in kopf and "genau der mitgelieferten" not in kopf
+        assert (f"Quelle Chromium: {rc}; CHROMIUM_VERSION der Quelle nennt Chromium {andere[0]}, die Bibliothek "
+                f"{STAND[0]}: gleicher Sicherheitsstand {STAND[1]}, nur die Patch-Nummer weicht ab") in kopf
+        paket = tmp_path / "paket"                          # der Paketbericht am Lauf zeigt die Abweichung
+        paket.mkdir()
+        (paket / "DRITTLIZENZEN.txt").write_text("Kopf\n", encoding="utf-8")
+        (paket / "CHROMIUM-LIZENZEN.txt").write_text(text, encoding="utf-8")
+        bericht = bauen.lizenzbericht(paket)
+        assert bericht["chromium_volltext"] and "nur die Patch-Nummer weicht ab" in bericht["chromium_quelle"]
+
+    def test_genauer_stand_geht_vor(self, tmp_path, netz):
+        """Eine Quelle mit abweichender Patch-Nummer kommt zuerst, eine genau passende spaeter: die genaue gewinnt."""
+        rc = (f"https://download.qt.io/development_releases/qtwebengine/{WE}-rc/"
+              f"qtwebengine-everywhere-src-{WE}-rc.tar.xz")
+        netz({rc: qt_quellarchiv(tmp_path, ("140.0.1234.99", STAND[1]))} | self.github(tmp_path, WE, STAND, sha="eeee"))
+        assert cl.chromium_quelle(VERSIONEN) == (f"github.com/qt/qtwebengine {WE}",
+                                                 "https://codeload.github.com/qt/qtwebengine-chromium/tar.gz/eeee", None)
+
+    @pytest.mark.parametrize("stand", [("140.0.1235.56", STAND[1]),      # andere Build-Nummer
+                                       ("141.0.1234.56", STAND[1]),      # andere Hauptfassung
+                                       ("140.0.1234.99", "150.0.2345.68"),   # anderer Sicherheitsstand
+                                       ("140.0.1234.99", ""),            # Sicherheitsstand unbekannt
+                                       ("140.0.1234", STAND[1])])        # keine Patch-Nummer
+    def test_mehr_als_die_patchnummer_reicht_nicht(self, tmp_path, netz, stand):
+        netz({QT_ARCHIV: qt_quellarchiv(tmp_path, stand)})
+        with pytest.raises(cl.Abbruch, match="keine passende Quelle"):
+            cl.chromium_quelle(VERSIONEN, iter(itertools.islice(cl.chromium_kandidaten(VERSIONEN), 1)))
 
     def test_keine_passende_quelle(self, tmp_path, netz, monkeypatch, capsys):
         seiten = netz({QT_ARCHIV: qt_quellarchiv(tmp_path, ("139.0.0.1", "149.0.0.1")),
@@ -454,7 +496,7 @@ class TestQuelle:
         monkeypatch.setattr(cl, "versionen", lambda: VERSIONEN)
         assert cl.main([str(tmp_path / "aus.txt")]) == 1
         fehler = capsys.readouterr().err
-        assert "keine Quelle mit genau dem Chromium-Stand" in fehler
+        assert "keine passende Quelle" in fehler
         assert f"{QT_ARCHIV}: Chromium 139.0.0.1, Sicherheitsstand 149.0.0.1" in fehler
         assert f"github.com/qt/qtwebengine v{WE}: gibt es nicht" in fehler
         assert "weitere Quellen nicht ermittelbar" in fehler and "Netz weg" in fehler

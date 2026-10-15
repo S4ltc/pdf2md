@@ -620,6 +620,8 @@ def eintrag(job: dict, distro: str, **dazu) -> dict:
     return {k: (f"{v} {dazu[k]}" if k in dazu else v) for k, v in gefunden.items()}
 
 
+# Ueber BASH_ENV (liest jede nicht-interaktive bash), nicht per export -f: die Wrapper in sim/bin laufen mit /bin/sh,
+# und dash (Ubuntu) verwirft exportierte bash-Funktionen (Variablenname BASH_FUNC_shopt%%) beim Weiterreichen.
 OHNE_GLOBSTAR = r'''shopt() {   # wie bash 3.2 (macOS): globstar gibt es nicht, die uebrigen Schalter wirken trotzdem
   local a
   local weiter=()
@@ -629,7 +631,6 @@ OHNE_GLOBSTAR = r'''shopt() {   # wie bash 3.2 (macOS): globstar gibt es nicht, 
   builtin shopt "${weiter[@]}"
   [ ${#weiter[@]} -eq $# ]
 }
-export -f shopt
 '''
 
 
@@ -655,6 +656,9 @@ def job_nachstellen(job: dict, matrix: dict, arbeit: Path, unbekannt=(), mit_ldd
             skript(sim / "bin" / name, text)
     umgebung = {"PATH": bash_pfad(sim / "bin"), "SIM": bash_pfad(sim), "GITHUB_ENV": bash_pfad(sim / "github_env"),
                 "ECHTES_PYTHON": bash_pfad(Path(sys.executable))}
+    if ohne_globstar:
+        skript(sim / "ohne_globstar.sh", OHNE_GLOBSTAR)
+        umgebung["BASH_ENV"] = bash_pfad(sim / "ohne_globstar.sh")
     for name, wert in job["env"].items():
         umgebung[name] = re.sub(r"\$\{\{\s*matrix\.(\w+)\s*\}\}", lambda m: matrix[m.group(1)], str(wert))
         assert "${{" not in umgebung[name], name
@@ -675,7 +679,7 @@ def job_nachstellen(job: dict, matrix: dict, arbeit: Path, unbekannt=(), mit_ldd
             assert "${{" not in schritt["run"], name                  # Skripte lesen nur Umgebungsvariablen
             datei = sim / f"schritt{nummer}.sh"
             skript(datei, "".join(f"export {k}={shlex.quote(v)}\n" for k, v in umgebung.items())
-                   + "unset DISPLAY\n" + (OHNE_GLOBSTAR if ohne_globstar else "") + schritt["run"])
+                   + "unset DISPLAY\n" + schritt["run"])
             lauf = subprocess.run([bash, "--noprofile", "--norc", "-eo", "pipefail", bash_pfad(datei)], cwd=ws,
                                   capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
             ausgabe.append(lauf.stdout + lauf.stderr)
