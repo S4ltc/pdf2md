@@ -366,6 +366,7 @@ def ergebnis_lesen(ergebnis: Path) -> dict:
 # Meldungen des virtuellen Bildschirms (xvfb-run -e), die fuer GL/GLX zaehlen; die vielen xkbcomp-Warnungen nicht.
 # Anlass: Fedora 41 brach mit "Could not initialize GLX" ab, ohne Hinweis, ob GLX im Xvfb selbst lief.
 XVFB_WICHTIG = re.compile(r"glx|dri|swrast|mesa|\(EE\)|error|fatal", re.IGNORECASE)
+XVFB_BILDSCHIRM = "-screen 0 1280x1024x24"          # bewaehrt auf ubuntu-22.04 und in den Containern
 
 
 def xvfb_meldungen(log: Path) -> str:
@@ -391,8 +392,9 @@ def starttest(ausgabe: Path, bericht: Path) -> int:
         befehl = [str(programm(ausgabe))]
         xvfb_log = Path(tmp) / "xvfb.log"
         if not windows() and not mac() and not os.environ.get("DISPLAY") and shutil.which("xvfb-run"):
-            # -verbose 3: Xvfb meldet dann auch, ob sein GLX laeuft (nur fuer den Bericht, siehe XVFB_WICHTIG)
-            befehl = ["xvfb-run", "-a", "-e", str(xvfb_log), "-s", "-screen 0 1280x1024x24 -verbose 3"] + befehl
+            # -e: Meldungen von Xvfb fuer den Bericht (XVFB_WICHTIG). Keine weiteren Server-Optionen: "-verbose" kennt
+            # Xvfb nicht und startete dann gar nicht (38edeae: Start-Test und damit das Linux-Paket fehlten)
+            befehl = ["xvfb-run", "-a", "-e", str(xvfb_log), "-s", XVFB_BILDSCHIRM] + befehl
         try:
             lauf = subprocess.run(befehl, env=env, capture_output=True, text=True, errors="replace",
                                   timeout=STARTTEST_ZEIT)

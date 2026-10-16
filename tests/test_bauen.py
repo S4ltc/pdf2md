@@ -262,7 +262,8 @@ class TestStarttestAuswerten:
             return subprocess.CompletedProcess(befehl, 134, "", "Could not initialize GLX")
         monkeypatch.setattr(bauen.subprocess, "run", laufen)
         assert bauen.starttest(tmp_path, tmp_path / "starttest.json") == 1
-        assert gesehen[0][:2] == ["xvfb-run", "-a"] and "-screen 0 1280x1024x24 -verbose 3" in gesehen[0]
+        # genau die bewaehrten Optionen fuer Xvfb: "-verbose 3" kannte Xvfb nicht und startete gar nicht (38edeae)
+        assert gesehen[0][:-1] == ["xvfb-run", "-a", "-e", gesehen[0][3], "-s", "-screen 0 1280x1024x24"]
         bericht = json.loads((tmp_path / "starttest.json").read_text(encoding="utf-8"))
         assert bericht["xvfb"] == ("(EE) AIGLX error: dlopen of /usr/lib64/dri/swrast_dri.so failed\n"
                                    "(EE) GLX: could not load software renderer")
