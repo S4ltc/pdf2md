@@ -722,13 +722,19 @@ class TestDistributionen:
             assert any(w.startswith("xz") for w in werkzeuge)
             assert not set(werkzeuge) & set((e["grundstock"] + " " + e["liesmich"] + " " + e["qt"]).split())
 
-    def test_liesmich_paket_wie_in_docs(self, distributionen):
-        """Stufe 2 installiert genau das Paket, das docs/LIESMICH.txt Nutzern nennt, und erst dort."""
+    def test_liesmich_pakete_wie_in_docs(self, distributionen):
+        """Stufe 2 installiert genau die Pakete, die docs/LIESMICH.txt Nutzern nennt, und erst dort. Dazu gehoert
+        libwayland-server: libQt6WebEngineCore braucht sie, PyInstaller liefert libwayland-* bewusst nicht mit, und
+        Ubuntu 24.04 ohne Wayland-Desktop hat sie nicht (CI an 2635270: in allen drei Stufen "not found")."""
         liesmich = (WURZEL / "docs" / "LIESMICH.txt").read_text(encoding="utf-8")
         for e in distributionen["strategy"]["matrix"]["include"]:
-            assert e["liesmich"] in CURSOR_PAKETE and e["liesmich"] in liesmich, e["distro"]
-            assert e["liesmich"] == {"apt": "libxcb-cursor0", "dnf": "xcb-util-cursor"}[e["verwaltung"]]
-            assert e["liesmich"] not in (e["werkzeuge"] + " " + e["grundstock"] + " " + e["qt"]).split()
+            pakete = e["liesmich"].split()
+            assert pakete == {"apt": ["libxcb-cursor0", "libwayland-server0"],
+                              "dnf": ["xcb-util-cursor", "libwayland-server"]}[e["verwaltung"]], e["distro"]
+            assert pakete[0] in CURSOR_PAKETE
+            for paket in pakete:
+                assert re.search(rf"(?<![\w-]){re.escape(paket)}(?![\w-])", liesmich), paket
+                assert paket not in (e["werkzeuge"] + " " + e["grundstock"] + " " + e["qt"]).split()
 
     @pytest.mark.langsam                                 # je Nachbau einige Sekunden (viele kleine Prozesse)
     def test_unbekanntes_paket_kostet_nur_dieses(self, distributionen, tmp_path):

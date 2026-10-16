@@ -20,7 +20,7 @@ Das Repo ist öffentlich (MIT). Claude prüft und bereitet vor; pushen und tagge
 5. **Bei einem Release** zusätzlich:
    - `VERSION` in `aktualisierung.py` erhöhen; der Tag `v<VERSION>` muss genau passen, sonst bricht `release.yml` ab.
    - Offene Aufgaben in CLAUDE.md prüfen:
-     - Chromium-Lizenzen: Ohne `CHROMIUM-LIZENZEN.txt` bricht das Linux-Paket im Release ab (Push-Builds warnen nur). Vor dem Tag den letzten Push-Lauf lesen (Schritt 7): Paketbericht „Paket linux-x86_64“ mit `chromium_volltext: true` und `chromium_quelle`, keine Warnung „Chromium-Lizenzen …“. Erst dann ist die Aufgabe erledigt (Stand siehe CLAUDE.md, Offene Aufgaben).
+     - Chromium-Lizenzen: Ohne `CHROMIUM-LIZENZEN.txt` bricht das Linux-Paket im Release ab (Push-Builds warnen nur). Vor dem Tag den letzten Push-Lauf lesen (Schritt 7): Paketbericht „Paket linux-x86_64“ mit `chromium_volltext: true` und `chromium_quelle`, keine Warnung „Chromium-Lizenzen …“.
      - Mac und Linux bleiben „Vorschau“, bis die Handtests nach `docs/testplan-mac-linux.md` (Schritt 3) gemacht sind. Erst danach „Vorschau“ in README, `docs/LIESMICH.txt` und `.github/release-notes.md` streichen. Die nächste Version 1.2.0 ist das erste Release mit Mac- und Linux-Paketen, noch als Vorschau.
    - Eine lokal gebaute exe prüfen: `python werkzeuge/exe_pruefen.py dist/pdf2md.exe --benutzer`; Treffer „runneradmin“ stammen aus vorgebauten Paketen. Bauen: Skill `pakete-bauen`.
 6. **Übergabe**: dem Nutzer das Prüfergebnis und die Befehle zum Selbst-Ausführen nennen (Push von `main`, bei einem Release Tag anlegen und pushen).

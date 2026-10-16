@@ -5,8 +5,8 @@ Start
   Windows 10/11 (64 Bit): pdf2md.exe in einen eigenen Ordner legen (zum Beispiel Dokumente\pdf2md, nicht
     "Programme") und doppelklicken. Daneben entstehen die Ordner Eingang, Fertig, Prüfen, Sicherung sowie
     Protokoll.csv und Einstellungen.json. Die Anzeige nutzt Microsoft Edge WebView2 (unter Windows 10/11 vorhanden).
-  macOS (Vorschau, macOS 14 Sonoma oder neuer, Apple Silicon oder Intel): pdf2md.app in den Ordner "Programme"
-    ziehen und öffnen (erster Start siehe unten). Die Ordner entstehen in Dokumente/pdf2md.
+  macOS (Vorschau; Apple Silicon ab macOS 14 Sonoma, Intel ab macOS 15 Sequoia): pdf2md.app in den Ordner
+    "Programme" ziehen und öffnen (erster Start siehe unten). Die Ordner entstehen in Dokumente/pdf2md.
   Linux (Vorschau, x86_64 mit glibc ab 2.35, z. B. Ubuntu 22.04, Debian 12, Fedora 40, Linux Mint 21 oder neuer):
     Das Archiv entpackt sich in einen eigenen Ordner pdf2md-…-linux-x86_64; darin liegt diese Datei. Dort
     pdf2md/pdf2md starten, zum Beispiel im Terminal mit ./pdf2md/pdf2md. Die Ordner entstehen im Dokumente-Ordner
@@ -23,9 +23,11 @@ Warnung beim ersten Start
       xattr -dr com.apple.quarantine /Applications/pdf2md.app
     Die Frage nach dem Zugriff auf den Ordner Dokumente erlauben, dort liegen die Ordner von pdf2md. Wer abgelehnt
     hat: Systemeinstellungen -> Datenschutz & Sicherheit -> Dateien und Ordner -> pdf2md.
-  Linux: Fehlen Bibliotheken für die Anzeige (Qt), meldet sich das Programm im Terminal; meist hilft das Paket
-    libxcb-cursor0 (Debian/Ubuntu) bzw. xcb-util-cursor (Fedora). Bleibt das Fenster leer, schwarz oder ohne
-    Titelleiste, nacheinander probieren:
+  Linux: Fehlen Bibliotheken für die Anzeige (Qt), meldet sich das Programm im Terminal. Meist helfen diese
+    Pakete (auf Desktops mit Wayland ist libwayland-server meist schon da):
+      Debian/Ubuntu: sudo apt install libxcb-cursor0 libwayland-server0
+      Fedora:        sudo dnf install xcb-util-cursor libwayland-server
+    Bleibt das Fenster leer, schwarz oder ohne Titelleiste, nacheinander probieren:
       QT_QPA_PLATFORM=xcb ./pdf2md/pdf2md
       QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu ./pdf2md/pdf2md
 

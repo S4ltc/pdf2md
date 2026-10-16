@@ -1,6 +1,6 @@
 # Testplan macOS und Linux
 
-Die Mac- und Linux-Pakete werden bei jedem Build auf GitHub automatisch gestartet. Dabei wandeln sie eine erfundene PDF und DOCX um, und das Linux-Paket startet zusätzlich in Containern mit Ubuntu 24.04, Debian 12 und Fedora 41. Nicht automatisch prüfbar ist, was nur auf einem echten Gerät passiert:
+Die Mac- und Linux-Pakete werden bei jedem Build auf GitHub automatisch gestartet. Dabei wandeln sie eine erfundene PDF und DOCX um, und das Linux-Paket wird zusätzlich in Containern mit Ubuntu 24.04, Debian 12 und Fedora 41 gestartet (Ergebnis je Lauf am Build). Nicht automatisch prüfbar ist, was nur auf einem echten Gerät passiert:
 - erster Start mit Gatekeeper,
 - die Abfrage nach dem Ordner Dokumente,
 - Ziehen aus Finder bzw. Dateimanager,
@@ -26,7 +26,7 @@ Dieser Plan beschreibt den Handtest dafür. Ein Durchgang dauert etwa 45 Minuten
 
 ## macOS: erster Start
 
-Voraussetzung ist macOS 14 (Sonoma) oder neuer. Das Paket meldet beim Bauen die gemessene Mindestversion.
+Voraussetzung ist macOS 14 (Sonoma) oder neuer für Apple Silicon und macOS 15 (Sequoia) oder neuer für Intel. Das Paket meldet beim Bauen die gemessene Mindestversion (`macos_minos`; Intel: die mitgelieferte OpenSSL-Bibliothek verlangt 15.0).
 
 1. Mit Safari laden, damit macOS die Datei wie bei Nutzern als „aus dem Internet“ kennzeichnet. Entpacken und `pdf2md.app` nach „Programme“ ziehen.
 2. Doppelklicken. Erwartet: Hinweis, dass die App nicht geprüft werden kann. Dann Systemeinstellungen → Datenschutz & Sicherheit → bei pdf2md „Dennoch öffnen“, das braucht das Admin-Passwort.
@@ -48,7 +48,7 @@ Voraussetzung ist x86_64 mit glibc ab 2.35, also Ubuntu 22.04 oder neuer, Debian
 4. Fenster leer, schwarz oder ohne Titelleiste: nacheinander probieren und notieren, was hilft.
    - `QT_QPA_PLATFORM=xcb ./…/pdf2md`
    - `QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu ./…/pdf2md`
-5. Startet nichts: Terminalausgabe sichern; fehlende Bibliotheken zeigt `ldd ./…/pdf2md/pdf2md | grep "not found"`. LIESMICH nennt das häufigste Paket (`libxcb-cursor0` bzw. `xcb-util-cursor`). Gibt es eine Datei `pdf2md-fehler.txt` im Dokumente-Ordner, ihren Inhalt (geschwärzt) mitschicken.
+5. Startet nichts: Terminalausgabe sichern; fehlende Bibliotheken zeigt `ldd ./…/pdf2md/pdf2md | grep "not found"`. LIESMICH nennt die häufigsten Pakete (`libxcb-cursor0` und `libwayland-server0` bzw. `xcb-util-cursor` und `libwayland-server`). Unter WSL2 fehlen beide in der Regel, also vor dem ersten Start `sudo apt install libxcb-cursor0 libwayland-server0`. Gibt es eine Datei `pdf2md-fehler.txt` im Dokumente-Ordner, ihren Inhalt (geschwärzt) mitschicken.
 
 ## Prüfliste für beide Systeme
 

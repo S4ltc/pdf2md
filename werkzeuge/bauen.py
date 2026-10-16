@@ -363,6 +363,19 @@ def ergebnis_lesen(ergebnis: Path) -> dict:
     return daten
 
 
+# Meldungen des virtuellen Bildschirms (xvfb-run -e), die fuer GL/GLX zaehlen; die vielen xkbcomp-Warnungen nicht.
+# Anlass: Fedora 41 brach mit "Could not initialize GLX" ab, ohne Hinweis, ob GLX im Xvfb selbst lief.
+XVFB_WICHTIG = re.compile(r"glx|dri|swrast|mesa|\(EE\)|error|fatal", re.IGNORECASE)
+
+
+def xvfb_meldungen(log: Path) -> str:
+    try:
+        text = log.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    return "\n".join(z for z in text.splitlines() if XVFB_WICHTIG.search(z))[-1000:]
+
+
 def starttest(ausgabe: Path, bericht: Path) -> int:
     """Startet das gebaute Programm mit PDF2MD_STARTTEST und wertet das Ergebnis aus. 0 = Oberflaeche hat sich
     gemeldet (Phase 1: Engine, Seite und Python-Schnittstelle laufen). Phase 2 (ui_app._funktionstest) wandelt die
@@ -376,8 +389,10 @@ def starttest(ausgabe: Path, bericht: Path) -> int:
         nicht_angelegt = testdateien_anlegen(Path(tmp) / "testdateien") if phase_2 else None
         env = {**os.environ, "PDF2MD_ABLAGE": str(Path(tmp) / "ablage"), "PDF2MD_STARTTEST": str(ergebnis)}
         befehl = [str(programm(ausgabe))]
+        xvfb_log = Path(tmp) / "xvfb.log"
         if not windows() and not mac() and not os.environ.get("DISPLAY") and shutil.which("xvfb-run"):
-            befehl = ["xvfb-run", "-a", "-s", "-screen 0 1280x1024x24"] + befehl
+            # -verbose 3: Xvfb meldet dann auch, ob sein GLX laeuft (nur fuer den Bericht, siehe XVFB_WICHTIG)
+            befehl = ["xvfb-run", "-a", "-e", str(xvfb_log), "-s", "-screen 0 1280x1024x24 -verbose 3"] + befehl
         try:
             lauf = subprocess.run(befehl, env=env, capture_output=True, text=True, errors="replace",
                                   timeout=STARTTEST_ZEIT)
@@ -387,6 +402,9 @@ def starttest(ausgabe: Path, bericht: Path) -> int:
         except OSError as e:
             ausgabe_text, code = f"Start nicht moeglich: {e}", None
         daten = ergebnis_lesen(ergebnis)
+        xvfb = xvfb_meldungen(xvfb_log)
+    if xvfb:
+        daten["xvfb"] = xvfb
     # Fehlerzeilen von Chromium (Qt WebEngine, Format "[pid:tid:zeit:ERROR:datei]"): beenden den Start nicht, sollen
     # aber ueber mehrere Laeufe vergleichbar sein (z.B. "Failed to send GpuControl.CreateCommandBuffer" unter xvfb)
     daten.update(rueckgabe=code, ausgabe=ausgabe_text[-3000:],
@@ -725,7 +743,8 @@ def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[s
         d = json.loads(test.read_text(encoding="utf-8"))
         kurz = {k: d.get(k) for k in ("gui", "angezeigt", "fehler", "rueckgabe", "chromium_fehler")}
         meldungen = [(f"Start-Test {name}", ("OK " if d.get("ok") else "FEHLER ") + json.dumps(kurz, ensure_ascii=False)
-                      + "\n" + (d.get("ausgabe") or "")[-2500:], "notice")]
+                      + (f"\nXvfb:\n{d['xvfb']}" if d.get("xvfb") else "") + "\n" + (d.get("ausgabe") or "")[-2500:],
+                      "notice")]
         zertifikate = zertifikate_hinweis(d)
         if zertifikate:
             meldungen.append((f"Zertifikate {name}", zertifikate, "warning"))

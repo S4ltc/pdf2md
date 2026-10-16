@@ -30,12 +30,12 @@ Pakete für macOS und Linux liegen ab Version 1.2.0 im Release; bis Version 1.1.
 | Datei | Für | Größe (laut Messung beim Bauen) |
 |---|---|---|
 | `pdf2md-…-macos-arm64.zip` | Mac mit Apple Silicon, macOS 14 (Sonoma) oder neuer | rund 81 MB, entpackt rund 200 MB |
-| `pdf2md-…-macos-intel.zip` | Mac mit Intel-Prozessor, macOS 14 (Sonoma) oder neuer | rund 82 MB, entpackt rund 190 MB |
+| `pdf2md-…-macos-intel.zip` | Mac mit Intel-Prozessor, macOS 15 (Sequoia) oder neuer | rund 82 MB, entpackt rund 190 MB |
 | `pdf2md-…-linux-x86_64.tar.xz` | Linux x86_64 mit glibc ab 2.35, z. B. Ubuntu 22.04, Debian 12, Fedora 40, Linux Mint 21 oder neuer | rund 195 MB, entpackt rund 610 MB |
 
 „Vorschau“ heißt: Jeder Build auf GitHub startet die Pakete und lässt sie eine erfundene PDF und DOCX umwandeln, das
-Linux-Paket startet zusätzlich unter Ubuntu 24.04, Debian 12 und Fedora 41 (siehe
-[macOS und Linux](#macos-und-linux-vorschau)). Von Hand auf echten Geräten getestet sind sie noch nicht; wer dabei
+Linux-Paket wird zusätzlich in Containern mit Ubuntu 24.04, Debian 12 und Fedora 41 gestartet; das Ergebnis steht je
+Lauf am Build (siehe [macOS und Linux](#macos-und-linux-vorschau)). Von Hand auf echten Geräten getestet sind sie noch nicht; wer dabei
 helfen möchte, findet Ablauf und Prüfliste in [`docs/testplan-mac-linux.md`](docs/testplan-mac-linux.md).
 
 **Erster Start auf dem Mac:**
@@ -59,7 +59,8 @@ tar -xJf pdf2md-…-linux-x86_64.tar.xz
 
 Das Archiv legt alles in einen eigenen Ordner `pdf2md-…-linux-x86_64` (darin der Programmordner `pdf2md`, die
 Lizenzen und `LIESMICH.txt`). Die Arbeitsordner entstehen im Dokumente-Ordner unter `pdf2md`. Fehlt beim Start eine
-Bibliothek, meist `libxcb-cursor0` (Debian, Ubuntu) bzw. `xcb-util-cursor` (Fedora) nachinstallieren. Bleibt das
+Bibliothek, meist `libxcb-cursor0` und `libwayland-server0` (Debian, Ubuntu) bzw. `xcb-util-cursor` und
+`libwayland-server` (Fedora) nachinstallieren; auf Desktops mit Wayland ist `libwayland-server` meist schon da. Bleibt das
 Fenster leer, schwarz oder ohne Titelleiste, nacheinander `QT_QPA_PLATFORM=xcb` und
 `QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu` vor den Aufruf setzen (zum Beispiel
 `QT_QPA_PLATFORM=xcb ./pdf2md-…-linux-x86_64/pdf2md/pdf2md`); eine Rückmeldung, was geholfen hat, ist willkommen.

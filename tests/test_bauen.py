@@ -242,6 +242,47 @@ class TestStarttestAuswerten:
         assert bericht["chromium_fehler"] == 1
         assert '"chromium_fehler": 1' in bauen.hinweise("linux-x86_64", tmp_path, tag="probe")[0]
 
+    def test_meldungen_des_virtuellen_bildschirms(self, tmp_path, monkeypatch, system):
+        """Fedora 41 (CI an 2635270): Qt brach mit "Could not initialize GLX" ab, ohne Hinweis, ob GLX im Xvfb
+        selbst lief. xvfb-run schreibt die Meldungen des Bildschirms jetzt in eine Datei (-e), der Bericht behaelt die
+        zu GL/GLX und Fehlern (die vielen xkbcomp-Warnungen nicht)."""
+        system("linux")
+        (tmp_path / "pdf2md").mkdir()
+        (tmp_path / "pdf2md" / "pdf2md").write_bytes(b"elf")
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.setattr(bauen.shutil, "which", lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None)
+        gesehen = []
+
+        def laufen(befehl, env, **kw):
+            gesehen.append(befehl)
+            log = Path(befehl[befehl.index("-e") + 1])
+            log.write_text("Warning: Could not resolve keysym XF86CameraAccessEnable\n"
+                           "(EE) AIGLX error: dlopen of /usr/lib64/dri/swrast_dri.so failed\n"
+                           "(EE) GLX: could not load software renderer\n", encoding="utf-8")
+            return subprocess.CompletedProcess(befehl, 134, "", "Could not initialize GLX")
+        monkeypatch.setattr(bauen.subprocess, "run", laufen)
+        assert bauen.starttest(tmp_path, tmp_path / "starttest.json") == 1
+        assert gesehen[0][:2] == ["xvfb-run", "-a"] and "-screen 0 1280x1024x24 -verbose 3" in gesehen[0]
+        bericht = json.loads((tmp_path / "starttest.json").read_text(encoding="utf-8"))
+        assert bericht["xvfb"] == ("(EE) AIGLX error: dlopen of /usr/lib64/dri/swrast_dri.so failed\n"
+                                   "(EE) GLX: could not load software renderer")
+        hinweis = bauen.hinweise("linux fedora-41 (Grundstock)", tmp_path, tag="probe")[0]
+        assert "%0AXvfb:%0A(EE) AIGLX error" in hinweis and "keysym" not in hinweis
+
+    def test_ohne_xvfb_meldungen_kein_feld(self, tmp_path, monkeypatch, system):
+        system("linux")
+        (tmp_path / "pdf2md").mkdir()
+        (tmp_path / "pdf2md" / "pdf2md").write_bytes(b"elf")
+        monkeypatch.setenv("DISPLAY", ":0")                 # kein xvfb-run, also keine Datei
+
+        def laufen(befehl, env, **kw):
+            Path(env["PDF2MD_STARTTEST"]).write_text(json.dumps({"ok": True}), encoding="utf-8")
+            return subprocess.CompletedProcess(befehl, 0, "", "")
+        monkeypatch.setattr(bauen.subprocess, "run", laufen)
+        assert bauen.starttest(tmp_path, tmp_path / "starttest.json") == 0
+        assert "xvfb" not in json.loads((tmp_path / "starttest.json").read_text(encoding="utf-8"))
+        assert "Xvfb" not in bauen.hinweise("linux-x86_64", tmp_path, tag="probe")[0]
+
 
 class TestHinweise:
     def test_lange_berichte_geteilt_und_maskiert(self, tmp_path):
