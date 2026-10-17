@@ -137,7 +137,7 @@ jobs:
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     continue-on-error: true
-    timeout-minutes: 40               # drei Start-Tests, jeder bis zu STARTTEST_ZEIT (7 min)
+    timeout-minutes: 75               # drei Start-Tests und bis zu vier Varianten, jeder bis STARTTEST_ZEIT (7 min)
     strategy:
       fail-fast: false
       matrix:
@@ -150,6 +150,7 @@ jobs:
               libgtk-3-0t64 libegl1 libgl1 libegl-mesa0 libglx-mesa0 libgl1-mesa-dri fontconfig fonts-dejavu-core
               libnss3 libasound2t64 libdbus-1-3 libxtst6
             liesmich: libxcb-cursor0 libwayland-server0
+            diagnose: mesa-utils
             qt: >-
               libopengl0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
               libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbfile1
@@ -161,6 +162,7 @@ jobs:
               libgtk-3-0 libegl1 libgl1 libegl-mesa0 libglx-mesa0 libgl1-mesa-dri fontconfig fonts-dejavu-core
               libnss3 libasound2 libdbus-1-3 libxtst6
             liesmich: libxcb-cursor0 libwayland-server0
+            diagnose: mesa-utils
             qt: >-
               libopengl0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0
               libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxkbfile1
@@ -172,6 +174,7 @@ jobs:
               gtk3 mesa-libEGL mesa-libGL mesa-dri-drivers fontconfig dejavu-sans-fonts nss alsa-lib dbus-libs
               libXtst
             liesmich: xcb-util-cursor libwayland-server
+            diagnose: glx-utils
             qt: >-
               libglvnd-opengl libxkbcommon-x11 xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util-wm
               libxkbfile
@@ -185,6 +188,7 @@ jobs:
       GRUNDSTOCK: ${{ matrix.grundstock }}
       LIESMICH: ${{ matrix.liesmich }}
       QT: ${{ matrix.qt }}
+      DIAGNOSE: ${{ matrix.diagnose }}
       STUFE_1: Grundstock
       STUFE_2: Grundstock + Paket aus LIESMICH
       STUFE_3: mit allen Qt-Paketen
@@ -303,6 +307,36 @@ jobs:
       - name: Stufe 3 (mit allen Qt-Paketen)
         continue-on-error: true
         run: bash stufe.sh 3 $QT
+
+      # Nur zur Diagnose, wieder entfernen, sobald die Ursache feststeht: Ubuntu 24.04 und Fedora 41 brachen unter Xvfb
+      # mit "Could not initialize GLX" ab, Debian 12 nicht (0f40f21; Xvfb selbst meldet keinen GLX-Fehler). Scheitert
+      # Stufe 3: glxinfo (welcher Mesa-Treiber laedt) und der Start-Test mit Umgebungsvarianten, je ein Hinweis
+      # "Start-Test linux <distro> (Variante ...)". Laeuft Stufe 3, passiert nichts.
+      - name: Varianten bei Fehlschlag (Diagnose GLX)
+        continue-on-error: true
+        run: |
+          [ -e gelaufen-3 ] || exit 0
+          if python3 -c 'import json, sys; sys.exit(0 if json.load(open("starttest.json")).get("ok") else 1)' 2> /dev/null; then
+            exit 0
+          fi
+          maskiert() { python3 -c 'import sys; print(sys.stdin.read().replace("%", "%25").replace("\r", "").replace("\n", "%0A"), end="")'; }
+          if [ "$VERWALTUNG" = apt ]; then
+            apt-get install -y --no-install-recommends $DIAGNOSE > /dev/null 2>&1 || true
+          else
+            dnf install -y --setopt=install_weak_deps=False $DIAGNOSE > /dev/null 2>&1 || true
+          fi
+          if command -v glxinfo > /dev/null && command -v xvfb-run > /dev/null; then
+            info=$( (LIBGL_DEBUG=verbose xvfb-run -a -s "-screen 0 1280x1024x24" glxinfo -B 2>&1 || true) | head -n 40) || true
+            echo "::notice title=glxinfo linux $DISTRO::$(printf '%s' "$info" | maskiert)"
+          else
+            echo "::notice title=glxinfo linux $DISTRO::glxinfo nicht verfügbar"
+          fi
+          for variante in "LIBGL_ALWAYS_SOFTWARE=1" "QT_XCB_GL_INTEGRATION=xcb_egl" "QT_XCB_GL_INTEGRATION=none" \
+                          "QT_QUICK_BACKEND=software QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu"; do
+            rm -f starttest.json
+            (export $variante; python3 werkzeuge/bauen.py starttest "$ORDNER" > /dev/null) || true
+            python3 werkzeuge/bauen.py hinweise "linux $DISTRO (Variante $variante)"
+          done
 
       - name: Ergebnisse als Hinweis
         if: always()

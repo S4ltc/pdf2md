@@ -46,6 +46,8 @@ Hinweise am Lauf je Paket: „Start-Test NAME“, „Zertifikate NAME“ (nur Wa
   2. dazu die Pakete aus `docs/LIESMICH.txt` (`libxcb-cursor0 libwayland-server0` bzw. `xcb-util-cursor libwayland-server`). `libwayland-*` lässt PyInstaller absichtlich weg (`depend/dylib.py`: ein Wayland-System habe sie); `libQt6WebEngineCore` braucht aber `libwayland-server.so.0`, und Ubuntu 24.04 ohne Wayland-Desktop (WSL2, Container) hat sie nicht. Unter Debian 12 fehlte sie schon im Grundstock nicht (vermutlich über Mesa).
   3. dazu die übrigen Qt-Pakete des Build-Jobs.
 
+  Zeitweise zur Diagnose (siehe CLAUDE.md): Scheitert Stufe 3, laufen `glxinfo` (Paket in `matrix.diagnose`) und der Start-Test mit vier Umgebungsvarianten (`LIBGL_ALWAYS_SOFTWARE=1`, `QT_XCB_GL_INTEGRATION=xcb_egl` bzw. `none`, `QT_QUICK_BACKEND=software` mit `--disable-gpu`), Hinweise „glxinfo linux <distro>“ und „Start-Test linux <distro> (Variante …)“. Xvfb kennt keine Option `-verbose` (startete damit gar nicht).
+
   Die Paketnamen je Distribution stehen in der Matrix; ändert sich LIESMICH, Stufe 2 anpassen. bauen.py läuft dort mit dem python3 des Containers als root: Start-Test und Hinweise dürfen nur die Standardbibliothek und Python 3.11 brauchen (ohne fpdf2/python-docx läuft dort nur Phase 1). Tests: `tests/test_pakete_system.py` stellt den Job in bash nach (ab bash 4 wie in den Containern: Git Bash, unter macOS die von Homebrew, sonst übersprungen; braucht PyYAML aus `requirements-dev.txt`). Die Skripte des Jobs dürfen Funktionen ab bash 4 nutzen (`globstar`), müssen ein Fehlen aber melden statt still weniger zu prüfen.
 
 ## Chromium-Lizenzen (nur Linux)

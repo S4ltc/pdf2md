@@ -63,11 +63,11 @@ $py = "$env:LOCALAPPDATA\pdf2md-venv\Scripts\python.exe"   # in jedem PowerShell
 
 Pläne, Fallen und Aufwand stehen in `docs/claude/offene-aufgaben.md`; vor Beginn lesen. Dort ist getrennt, was der Nutzer entschieden hat und was nur Empfehlung ist (Empfehlungen vor Beginn bestätigen lassen). Erledigtes hier und dort streichen.
 
-- **Linux-Paket im Job `distributionen`** (CI an 2635270; grün ist der Job nur wegen `continue-on-error`):
-  - ubuntu-24.04: Fehlt `libwayland-server.so.0`, startet das Paket nicht. PyInstaller lässt `libwayland-*` absichtlich weg, also kommt `libwayland-server0` bzw. `libwayland-server` in LIESMICH und Stufe 2. Bestätigung durch den nächsten CI-Lauf offen.
-  - fedora-41: bricht in allen Stufen mit „Could not initialize GLX“ ab (Xvfb, Mesa ist installiert). Ursache offen.
-    - Der Start-Test hält jetzt die GL-Meldungen von Xvfb fest (`xvfb` im Ergebnis, Abschnitt „Xvfb:“ im Hinweis).
-    - Danach entscheiden: Testumgebung oder echter Fehler. Fedora 41 ist außerdem ausgelaufen; der Wechsel auf eine aktuelle Fassung ist nur Empfehlung.
+- **Linux-Paket im Job `distributionen`** (CI an 0f40f21; grün ist der Job nur wegen `continue-on-error`):
+  - `libwayland-server` in LIESMICH und Stufe 2 wirkt: Ubuntu 24.04 meldet ab Stufe 2 keine fehlende Bibliothek mehr.
+  - Ubuntu 24.04 und Fedora 41 brechen aber unter Xvfb mit „Could not initialize GLX“ ab. Debian 12 läuft (Mesa 22), die beiden anderen haben Mesa 24/25. Xvfb selbst meldet keinen GLX-Fehler.
+  - Zur Diagnose läuft nach einem Fehlschlag in Stufe 3 der Schritt „Varianten bei Fehlschlag“ (glxinfo und vier Umgebungsvarianten, je ein Hinweis). Den Schritt wieder entfernen, sobald die Ursache feststeht; danach entscheiden, ob nur die Testumgebung betroffen ist oder Nutzer auch.
+  - Fedora 41 ist ausgelaufen; der Wechsel auf eine aktuelle Fassung ist nur Empfehlung.
 - **Schritt 3: Handtests auf echten Mac- und Linux-Geräten** (Nutzerentscheidung 2026-10-11):
   - Plan und Prüfliste: `docs/testplan-mac-linux.md`.
   - Der Nutzer hat weder Mac noch Linux und testet über WSL2/VM bzw. über Bekannte oder einen gemieteten Mac.
