@@ -222,8 +222,26 @@ class TestMindestversionen:
         alt = "0000000000000000      DF *UND*\t0000000000000000  GLIBC_2.2.5 free\n"
         ausgabe_von, gefragt = self.nachbau({"pdf2md": OBJDUMP_T, "libalt.so.1": alt, "libneu.so.2": READELF_V})
         bericht = bauen.mindestversionen(tmp_path, ausgabe_von)
-        assert bericht == {"glibc_max": "2.34", "glibc_max_dateien": ["pdf2md/_internal/libneu.so.2"]}
+        assert bericht == {"glibc_max": "2.34", "glibc_max_dateien": ["pdf2md/_internal/libneu.so.2"],
+                           "glibcxx_max": "3.4.30", "glibcxx_max_dateien": ["pdf2md/pdf2md"]}
         assert sorted(gefragt) == ["libalt.so.1", "libneu.so.2", "libohne.so", "pdf2md"]   # nur ELF-Dateien
+
+    def test_libstdcxx_des_systems_gemessen(self, system, tmp_path):
+        """Seit libstdc++ nicht mehr im Paket liegt, kommt sie vom System: gemessen wird die hoechste GLIBCXX-Version,
+        die eine Datei verlangt (nicht, was libstdc++ selbst anbietet)."""
+        system("linux")
+        anlegen(tmp_path, {"pdf2md/_internal/libqt.so.6": ELF, "pdf2md/_internal/libdyn.so": ELF})
+        ausgabe_von, _ = self.nachbau({"libqt.so.6": OBJDUMP_T, "libdyn.so": READELF_DYNSYMS})
+        bericht = bauen.mindestversionen(tmp_path, ausgabe_von)
+        assert bericht["glibcxx_max"] == "3.4.30" and bericht["glibcxx_max_dateien"] == ["pdf2md/_internal/libqt.so.6"]
+        assert sorted(bauen.glibc_versionen(READELF_DYNSYMS, bauen.GLIBCXX)) == ["3.4"]
+        definiert = "0000000000012400 g    DF .text\t0000000000000010  GLIBCXX_3.4.33  _ZNSt6thread4joinEv\n"
+        assert bauen.glibc_versionen(definiert, bauen.GLIBCXX) == []
+
+    def test_macos_ohne_libstdcxx_angabe(self, system, tmp_path):
+        system("darwin")
+        anlegen(tmp_path, {"pdf2md.app/Contents/MacOS/pdf2md": MACH_O})
+        assert "glibcxx_max" not in bauen.mindestversionen(tmp_path, self.nachbau({"pdf2md": OTOOL_NEU})[0])
 
     def test_macos_hoechstes_minos(self, system, tmp_path):
         system("darwin")
@@ -248,7 +266,9 @@ class TestMindestversionen:
     def test_ohne_binaerdateien(self, system, tmp_path):
         system("linux")
         anlegen(tmp_path, {"LICENSE.txt": b"Lizenz"})
-        assert bauen.mindestversionen(tmp_path, self.nachbau({})[0]) == {"glibc_max": None, "glibc_max_dateien": []}
+        assert bauen.mindestversionen(tmp_path, self.nachbau({})[0]) == {"glibc_max": None, "glibc_max_dateien": [],
+                                                                         "glibcxx_max": None,
+                                                                         "glibcxx_max_dateien": []}
 
     def test_werkzeug_fehlt(self, system, tmp_path):
         """Ohne Werkzeug keine geschaetzte Zahl, sondern ein klarer Vermerk im Bericht."""
@@ -514,7 +534,7 @@ def test_fstring_pruefung_erkennt():
 # PATH stehen ausser ihnen nur Verweise auf die Grundwerkzeuge (WERKZEUGE_ECHT), so laesst sich auch ein Container
 # ohne ldd nachstellen. Der Nachbau von Qt verlangt libxcb-cursor.so.0 wie docs/LIESMICH.txt. Unter Windows Git Bash.
 BAUEN_YML = WURZEL / ".github" / "workflows" / "bauen.yml"
-WERKZEUGE_ECHT = ("bash", "cat", "grep", "mkdir", "rm", "sed", "sleep", "sort", "tail", "tar", "touch", "xz")
+WERKZEUGE_ECHT = ("bash", "cat", "grep", "head", "mkdir", "rm", "sed", "sleep", "sort", "tail", "tar", "touch", "xz")
 CURSOR_PAKETE = ("libxcb-cursor0", "xcb-util-cursor")   # liefern libxcb-cursor.so.0 (Debian/Ubuntu bzw. Fedora)
 NACHBAU = {
     "apt-get": r'''#!/bin/sh
@@ -556,7 +576,7 @@ printf '\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f0000000000)\n'
 ''',
     "python3": r'''#!/bin/sh
 if [ "$2" = starttest ]; then
-  echo "starttest $3${LIBGL_ALWAYS_SOFTWARE:+ LIBGL_ALWAYS_SOFTWARE=$LIBGL_ALWAYS_SOFTWARE}${QT_XCB_GL_INTEGRATION:+ QT_XCB_GL_INTEGRATION=$QT_XCB_GL_INTEGRATION}${QT_QUICK_BACKEND:+ QT_QUICK_BACKEND=$QT_QUICK_BACKEND}" >> "$SIM/aufrufe.log"
+  echo "starttest $3${LIBGL_ALWAYS_SOFTWARE:+ LIBGL_ALWAYS_SOFTWARE=$LIBGL_ALWAYS_SOFTWARE}${QT_XCB_GL_INTEGRATION:+ QT_XCB_GL_INTEGRATION=$QT_XCB_GL_INTEGRATION}${QT_QUICK_BACKEND:+ QT_QUICK_BACKEND=$QT_QUICK_BACKEND}${QTWEBENGINE_CHROMIUM_FLAGS:+ QTWEBENGINE_CHROMIUM_FLAGS=$QTWEBENGINE_CHROMIUM_FLAGS}" >> "$SIM/aufrufe.log"
   ok=false
   if [ -e "$SIM/installiert/libxcb-cursor0" ] || [ -e "$SIM/installiert/xcb-util-cursor" ]; then ok=true; fi
   if [ -n "$LIBGL_ALWAYS_SOFTWARE" ]; then ok=true; fi    # erfunden: so zeigt der Test, dass die Variante ankommt
@@ -565,6 +585,18 @@ if [ "$2" = starttest ]; then
   exit
 fi
 exec "$ECHTES_PYTHON" "$@"
+''',
+    # Durchreicher: die Optionen von xvfb-run weg, dann das Programm (nur im Diagnoseschritt; starttest ist oben
+    # nachgebildet und ruft xvfb-run nie auf)
+    "xvfb-run": r'''#!/bin/sh
+while [ $# -gt 0 ]; do case "$1" in -a) shift ;; -s|-e) shift 2 ;; *) break ;; esac; done
+exec "$@"
+''',
+    # Ausgabe mit %, CR und mehreren Zeilen (Maskierung fuer GitHub); mit LD_LIBRARY_PATH erkennbar anders
+    "glxinfo": r'''#!/bin/sh
+printf 'name of display: :99\r\nOpenGL renderer string: llvmpipe 100 %%\n'
+[ -n "$LD_LIBRARY_PATH" ] && printf 'mit Paket: %s\n' "${LD_LIBRARY_PATH##*/}"
+exit 0
 ''',
 }
 
@@ -814,14 +846,23 @@ class TestDistributionen:
         ordner = "entpackt/pdf2md-probe-linux-x86_64"
         assert [a for a in lauf["aufrufe"] if a.startswith("starttest")] == [f"starttest {ordner}"] * 3 + [
             f"starttest {ordner} LIBGL_ALWAYS_SOFTWARE=1", f"starttest {ordner} QT_XCB_GL_INTEGRATION=xcb_egl",
-            f"starttest {ordner} QT_XCB_GL_INTEGRATION=none", f"starttest {ordner} QT_QUICK_BACKEND=software"]
+            f"starttest {ordner} QT_XCB_GL_INTEGRATION=none",
+            f"starttest {ordner} QT_QUICK_BACKEND=software QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu"]
         varianten = re.findall(r"::notice title=Start-Test linux ubuntu-24\.04 \(Variante ([^)]*)\)::(\S+)",
                                lauf["ausgabe"])
         assert varianten == [("LIBGL_ALWAYS_SOFTWARE=1", "OK"), ("QT_XCB_GL_INTEGRATION=xcb_egl", "FEHLER"),
                              ("QT_XCB_GL_INTEGRATION=none", "FEHLER"),
                              ("QT_QUICK_BACKEND=software QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu", "FEHLER")]
-        assert "::notice title=glxinfo linux ubuntu-24.04::glxinfo nicht verfügbar" in lauf["ausgabe"]
+        # glxinfo maskiert (%, Zeilenumbruch, kein CR), die Gegenprobe mit dem Bibliothekspfad des Pakets
+        assert ("::notice title=glxinfo linux ubuntu-24.04::name of display: :99%0AOpenGL renderer string: llvmpipe "
+                "100 %25\n") in lauf["ausgabe"]
+        assert "::notice title=glxinfo mit Paketbibliotheken linux ubuntu-24.04::" in lauf["ausgabe"]
+        assert "%0Amit Paket: _internal" in lauf["ausgabe"] and "\r" not in lauf["ausgabe"]
+        # ohne Mesa im Nachbau: ein Hinweis, dass keine Bibliothek gefunden wurde
+        assert "::notice title=Mesa mit Paketbibliotheken linux ubuntu-24.04::keine Mesa-Bibliothek gefunden" in \
+            lauf["ausgabe"]
         assert [a for a in lauf["aufrufe"] if a.startswith("apt-get install") and a.endswith(" mesa-utils")]
+        assert dict(lauf["schritte"])["Varianten bei Fehlschlag (Diagnose GLX)"] == 0
 
     def test_keine_varianten_wenn_stufe_3_laeuft(self, distributionen, tmp_path):
         lauf = job_nachstellen(distributionen, eintrag(distributionen, "debian-12"), tmp_path)

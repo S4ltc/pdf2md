@@ -151,6 +151,13 @@ SPRACHEN = ("de", "en", "en-US")
 # GTK, Pango, Cairo usw. von Ubuntu 22.04 mit; auf einem anderen System liefen die gegen dessen GTK-, GIO- und
 # Thema-Module. Ohne das Plugin nimmt Qt sein eigenes Aussehen (betrifft nur den Dateidialog, das Fenster ist HTML).
 UNNOETIGE_PLUGINS = ("platformthemes/libqgtk3.so",)
+# Laufzeit von GCC aus dem Build-System (Ubuntu 22.04, GCC 12): PyInstaller setzt LD_LIBRARY_PATH auf _internal, so
+# ueberdeckten sie die neueren des Zielsystems. Vermutete Folge (CI an ca8133b, Beleg steht aus): Mesa 25 (Ubuntu
+# 24.04, Fedora 41) haengt ueber libgallium an libLLVM 19/20, das libstdc++ ab GCC 13 verlangt, und laedt nicht; Qt
+# brach mit "Could not initialize GLX" ab, obwohl glxinfo im selben Xvfb lief. Nur die oberste Ebene von _internal:
+# Kopien mit eigenem Namen tiefer im Paket (numpy.libs) werden unter genau diesem Namen gebraucht. Welche libstdc++
+# das Paket vom System verlangt, misst mindestversionen (glibcxx_max, Warnung ueber GLIBCXX_GRENZE).
+GCC_LAUFZEIT = ("libstdc++.so.6*", "libgcc_s.so.1*")
 ELF_NEEDED = re.compile(r"\(NEEDED\)\s+Shared library: \[([^\]]+)\]")
 
 
@@ -205,6 +212,9 @@ def aufraeumen(ausgabe: Path) -> tuple[int, list[str]]:
     plugins = [qt / "plugins" / p for p in UNNOETIGE_PLUGINS if (qt / "plugins" / p).is_file()]
     bibliotheken = nur_ueber(intern, plugins) if plugins and shutil.which("readelf") else []
     verweise = [p for p in intern.rglob("*") if p.is_symlink() and p.resolve() in set(bibliotheken)]
+    laufzeit = [p for muster in GCC_LAUFZEIT for p in intern.glob(muster)]
+    verweise = list(dict.fromkeys(verweise + [p for p in laufzeit if p.is_symlink()]))
+    bibliotheken += [p for p in laufzeit if not p.is_symlink()]
     gespart = sum(p.stat().st_size for p in weg + plugins + bibliotheken)
     for datei in weg + plugins + bibliotheken + verweise:
         datei.unlink()
@@ -477,6 +487,9 @@ ELF_KOPF = (b"\x7fELF",)
 MACH_O_KOPF = tuple(bytes.fromhex(k) for k in ("feedface", "cefaedfe", "feedfacf", "cffaedfe",
                                                "cafebabe", "bebafeca", "cafebabf", "bfbafeca"))
 GLIBC = re.compile(r"\bGLIBC_(\d+(?:\.\d+)+)\b")      # nicht GLIBC_PRIVATE, nicht GLIBCXX_ (libstdc++)
+# libstdc++ des Systems (liegt nicht mehr im Paket, siehe GCC_LAUFZEIT): verlangte GLIBCXX-Versionen
+GLIBCXX = re.compile(r"\bGLIBCXX_(\d+(?:\.\d+)+)\b")
+GLIBCXX_GRENZE = "3.4.30"                              # GCC 12: Debian 12 und Ubuntu 22.04, die aeltesten unterstuetzten
 OTOOL_TEIL = re.compile(r"\(architecture ([^)]+)\):\s*$")
 VERSIONSNUMMER = re.compile(r"\d+(?:\.\d+)*")
 
@@ -489,20 +502,20 @@ def _versionsschluessel(version: str) -> tuple[int, ...]:
     return tuple(teile)
 
 
-def glibc_versionen(ausgabe: str) -> list[str]:
-    """GLIBC-Symbolversionen, die eine ELF-Datei von der glibc des Systems verlangt, aus `objdump -T`,
-    `readelf --dyn-syms` oder `readelf -V`. Es zaehlt nur, was die Datei braucht: undefinierte Symbole (*UND* bzw.
-    UND) und bei readelf -V nur der Abschnitt "Version needs". Was sie selbst anbietet, zaehlt nicht (libcrypt aus
-    libxcrypt etwa definiert GLIBC_2.2.5 zur Kompatibilitaet; "Version symbols" mischt beides)."""
+def glibc_versionen(ausgabe: str, muster: re.Pattern = GLIBC) -> list[str]:
+    """GLIBC-Symbolversionen (mit muster=GLIBCXX die von libstdc++), die eine ELF-Datei vom System verlangt, aus
+    `objdump -T`, `readelf --dyn-syms` oder `readelf -V`. Es zaehlt nur, was die Datei braucht: undefinierte Symbole
+    (*UND* bzw. UND) und bei readelf -V nur der Abschnitt "Version needs". Was sie selbst anbietet, zaehlt nicht
+    (libcrypt aus libxcrypt etwa definiert GLIBC_2.2.5 zur Kompatibilitaet; "Version symbols" mischt beides)."""
     versionen, abschnitt = [], None
     for zeile in ausgabe.splitlines():
         if zeile.startswith("Version "):               # Abschnittskopf von readelf -V: symbols, definition, needs
             abschnitt = zeile.split()[1]
         elif abschnitt is not None:
             if abschnitt == "needs":
-                versionen += GLIBC.findall(zeile)
+                versionen += muster.findall(zeile)
         elif {"*UND*", "UND"} & set(zeile.split()):   # Symboltabelle (objdump -T, readelf --dyn-syms)
-            versionen += GLIBC.findall(zeile)
+            versionen += muster.findall(zeile)
     return versionen
 
 
@@ -575,15 +588,26 @@ def mindestversionen(ordner: Path, ausgabe_von=None, arch: str | None = None) ->
     if arch is None and mac() and sys.platform == "darwin":
         import platform                                # nur hier gebraucht
         arch = platform.machine()                      # arm64 bzw. x86_64, wie otool die Teile nennt
-    je_datei = {}
+    je_datei, je_datei_cxx = {}, {}
     for datei in _binaerdateien(ordner, MACH_O_KOPF if mac() else ELF_KOPF):
         try:
             text = ausgabe_von(datei)
         except OSError as e:                           # Werkzeug fehlt
             return {feld: None, f"{feld}_fehler": f"nicht messbar: {e}"}
+        name = datei.relative_to(ordner).as_posix()
         versionen = macos_versionen(text, arch) if mac() else glibc_versionen(text)
         if versionen:
-            je_datei[datei.relative_to(ordner).as_posix()] = max(versionen, key=_versionsschluessel)
+            je_datei[name] = max(versionen, key=_versionsschluessel)
+        if not mac() and (cxx := glibc_versionen(text, GLIBCXX)):
+            je_datei_cxx[name] = max(cxx, key=_versionsschluessel)
+    bericht = _minimum(feld, je_datei)
+    if not mac():                                      # libstdc++ kommt vom System (GCC_LAUFZEIT)
+        bericht.update(_minimum("glibcxx_max", je_datei_cxx))
+    return bericht
+
+
+def _minimum(feld: str, je_datei: dict) -> dict:
+    """Hoechste Version ueber alle Dateien und die Dateien, die sie setzen (hoechstens 5)."""
     if not je_datei:
         return {feld: None, f"{feld}_dateien": []}
     hoechste = max(je_datei.values(), key=_versionsschluessel)
@@ -761,10 +785,15 @@ def hinweise(name: str, wurzel: Path = WURZEL, tag: str | None = None) -> list[s
             teile = [text[i:i + HINWEIS_LAENGE] for i in range(0, len(text), HINWEIS_LAENGE)]
             meldungen += [(f"{titel} {name}" + (f" ({n}/{len(teile)})" if len(teile) > 1 else ""), teil, "notice")
                           for n, teil in enumerate(teile, 1)]
-    if tag != "probe" and (wurzel / "paket.json").exists():
+    if (wurzel / "paket.json").exists():
         bericht = json.loads((wurzel / "paket.json").read_text(encoding="utf-8"))
-        if bericht.get("qt_lizenztext_zeichen") and not bericht.get("chromium_volltext"):
+        if tag != "probe" and bericht.get("qt_lizenztext_zeichen") and not bericht.get("chromium_volltext"):
             warnungen.append((f"Chromium-Lizenzen {name}", CHROMIUM_AUFGABE))
+        cxx = bericht.get("glibcxx_max")
+        if cxx and _versionsschluessel(cxx) > _versionsschluessel(GLIBCXX_GRENZE):
+            warnungen.append((f"libstdc++ {name}", f"Das Paket verlangt GLIBCXX_{cxx} von der libstdc++ des Systems, "
+                              f"Debian 12 und Ubuntu 22.04 haben nur {GLIBCXX_GRENZE} (GCC 12): dort startet es "
+                              f"nicht. Gesetzt von: {', '.join(bericht.get('glibcxx_max_dateien') or [])}"))
     return _hinweiszeilen(warnungen, "warning") + _hinweiszeilen(meldungen, "notice")
 
 

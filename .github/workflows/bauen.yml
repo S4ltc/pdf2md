@@ -325,9 +325,23 @@ jobs:
           else
             dnf install -y --setopt=install_weak_deps=False $DIAGNOSE > /dev/null 2>&1 || true
           fi
+          # Mesa des Systems mit dem Bibliothekspfad des Pakets (PyInstaller setzt LD_LIBRARY_PATH auf _internal): ldd
+          # nennt Bibliotheken aus dem Paket, die Mesa ueberdecken, und fehlende Versionen ("version `GLIBCXX_...'
+          # not found"). Mesa selbst meldet nichts, wenn schon libglvnd libGLX_mesa nicht laden kann.
+          intern="$ORDNER/pdf2md/_internal"
+          befund=
+          for mesa in /usr/lib/x86_64-linux-gnu/lib{GLX,EGL}_mesa.so.0 /usr/lib64/lib{GLX,EGL}_mesa.so.0; do
+            [ -e "$mesa" ] || continue
+            zeilen=$(LD_LIBRARY_PATH="$intern:$intern/PySide6/Qt/lib" ldd "$mesa" 2>&1 | grep -F -e "not found" -e "$intern" || true)
+            befund+="${mesa##*/}: ${zeilen:-nichts aus dem Paket}"$'\n'
+          done
+          echo "::notice title=Mesa mit Paketbibliotheken linux $DISTRO::$(printf '%s' "${befund:-keine Mesa-Bibliothek gefunden}" | maskiert)"
           if command -v glxinfo > /dev/null && command -v xvfb-run > /dev/null; then
-            info=$( (LIBGL_DEBUG=verbose xvfb-run -a -s "-screen 0 1280x1024x24" glxinfo -B 2>&1 || true) | head -n 40) || true
+            info=$( (xvfb-run -a -s "-screen 0 1280x1024x24" glxinfo -B 2>&1 || true) | head -n 40) || true
             echo "::notice title=glxinfo linux $DISTRO::$(printf '%s' "$info" | maskiert)"
+            # Gegenprobe ohne Qt: dasselbe glxinfo mit den Bibliotheken des Pakets davor
+            info=$( (LD_LIBRARY_PATH="$intern" xvfb-run -a -s "-screen 0 1280x1024x24" glxinfo -B 2>&1 || true) | head -n 12) || true
+            echo "::notice title=glxinfo mit Paketbibliotheken linux $DISTRO::$(printf '%s' "$info" | maskiert)"
           else
             echo "::notice title=glxinfo linux $DISTRO::glxinfo nicht verfügbar"
           fi

@@ -156,6 +156,36 @@ class TestAufraeumen:
         assert not (intern / "libgtk-3.so.0").exists() and (intern / "libglib-2.0.so.0").exists()
         assert (intern / "libharfbuzz.so.0").exists() and (intern / "libdlopen-nur.so.1").exists()
 
+    def test_laufzeit_von_gcc_entfaellt(self, tmp_path, monkeypatch):
+        """libstdc++ und libgcc_s des Build-Systems (Ubuntu 22.04) ueberdeckten die neueren des Zielsystems; vermutlich
+        lud deshalb Mesa 25 (Ubuntu 24.04, Fedora 41) nicht, Qt brach mit "Could not initialize GLX" ab, obwohl
+        glxinfo im selben Xvfb lief (CI an ca8133b). Andere Bibliotheken im Paket bleiben."""
+        monkeypatch.setattr(bauen.shutil, "which", lambda name: None)
+        intern = tmp_path / "pdf2md" / "_internal"
+        (intern / "PySide6" / "Qt" / "lib").mkdir(parents=True)
+        for name in ("libstdc++.so.6", "libgcc_s.so.1", "libcrypto.so.3", "PySide6/Qt/lib/libQt6Core.so.6"):
+            (intern / name).write_bytes(b"\x7fELF" + b"x" * 96)
+        gespart, entfernt = bauen.aufraeumen(tmp_path)
+        assert entfernt == ["libgcc_s.so.1", "libstdc++.so.6"] and gespart == 200
+        assert sorted(p.name for p in intern.rglob("*") if p.is_file()) == ["libQt6Core.so.6", "libcrypto.so.3"]
+
+    def test_laufzeit_verknuepfung_und_nur_oberste_ebene(self, tmp_path, monkeypatch):
+        """Verknuepfung samt Ziel weg (gezaehlt nur das Ziel); Kopien mit eigenem Namen tiefer im Paket (numpy.libs:
+        per DT_NEEDED unter genau diesem Namen gebraucht) bleiben."""
+        monkeypatch.setattr(bauen.shutil, "which", lambda name: None)
+        intern = tmp_path / "pdf2md" / "_internal"
+        (intern / "numpy.libs").mkdir(parents=True)
+        (intern / "libstdc++.so.6.0.30").write_bytes(b"\x7fELF" + b"x" * 96)
+        try:
+            (intern / "libstdc++.so.6").symlink_to("libstdc++.so.6.0.30")
+        except OSError:
+            pytest.skip("Verknuepfungen brauchen hier besondere Rechte")
+        (intern / "numpy.libs" / "libstdc++-abc123.so.6.0.30").write_bytes(b"\x7fELF" + b"x" * 96)
+        gespart, entfernt = bauen.aufraeumen(tmp_path)
+        assert gespart == 100 and entfernt == ["libstdc++.so.6.0.30"]
+        assert not (intern / "libstdc++.so.6").is_symlink() and not (intern / "libstdc++.so.6.0.30").exists()
+        assert (intern / "numpy.libs" / "libstdc++-abc123.so.6.0.30").exists()
+
     def test_ohne_readelf_nur_das_plugin(self, tmp_path, monkeypatch):
         intern = tmp_path / "pdf2md" / "_internal"
         self.bibliotheken(intern, self.GTK)
@@ -312,6 +342,19 @@ class TestHinweise:
         assert not any(z.startswith("::warning") for z in bauen.hinweise("linux-x86_64", tmp_path, tag="v1.2.0"))
         (tmp_path / "paket.json").write_text(json.dumps({"qt_lizenztext_zeichen": {}}), encoding="utf-8")
         assert not any(z.startswith("::warning") for z in bauen.hinweise("windows", tmp_path, tag="v1.2.0"))
+
+    def test_warnt_bei_neuerer_libstdcxx(self, tmp_path):
+        """libstdc++ kommt vom System (nicht mehr im Paket). Verlangt das Paket mehr als GCC 12 (GLIBCXX_3.4.30, Debian 12
+        und Ubuntu 22.04), startet es dort nicht: Warnung bei jedem Lauf, nicht erst beim Release."""
+        (tmp_path / "paket.json").write_text(json.dumps({"glibcxx_max": "3.4.32",
+                                                         "glibcxx_max_dateien": ["pdf2md/_internal/libneu.so"]}),
+                                             encoding="utf-8")
+        zeilen = bauen.hinweise("linux-x86_64", tmp_path, tag="probe")
+        assert zeilen[0].startswith("::warning title=libstdc++ linux-x86_64::") and "3.4.32" in zeilen[0]
+        assert "libneu.so" in zeilen[0]
+        for alt in ("3.4.30", "3.4.29", None):
+            (tmp_path / "paket.json").write_text(json.dumps({"glibcxx_max": alt}), encoding="utf-8")
+            assert not any(z.startswith("::warning") for z in bauen.hinweise("linux-x86_64", tmp_path, tag="probe"))
 
     def test_ohne_ergebnisse(self, tmp_path):
         assert bauen.hinweise("windows", tmp_path) == [
