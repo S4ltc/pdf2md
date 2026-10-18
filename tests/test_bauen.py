@@ -157,9 +157,9 @@ class TestAufraeumen:
         assert (intern / "libharfbuzz.so.0").exists() and (intern / "libdlopen-nur.so.1").exists()
 
     def test_laufzeit_von_gcc_entfaellt(self, tmp_path, monkeypatch):
-        """libstdc++ und libgcc_s des Build-Systems (Ubuntu 22.04) ueberdeckten die neueren des Zielsystems; vermutlich
-        lud deshalb Mesa 25 (Ubuntu 24.04, Fedora 41) nicht, Qt brach mit "Could not initialize GLX" ab, obwohl
-        glxinfo im selben Xvfb lief (CI an ca8133b). Andere Bibliotheken im Paket bleiben."""
+        """libstdc++ und libgcc_s des Build-Systems (Ubuntu 22.04) ueberdeckten die neueren des Zielsystems; deshalb
+        lud Mesa 25 (Ubuntu 24.04, Fedora 41) nicht, Qt brach mit "Could not initialize GLX" ab, obwohl glxinfo im
+        selben Xvfb lief (CI an ca8133b; ohne beide starten die Systeme, aa19c03). Andere Bibliotheken bleiben."""
         monkeypatch.setattr(bauen.shutil, "which", lambda name: None)
         intern = tmp_path / "pdf2md" / "_internal"
         (intern / "PySide6" / "Qt" / "lib").mkdir(parents=True)

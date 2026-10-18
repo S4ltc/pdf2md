@@ -152,9 +152,9 @@ SPRACHEN = ("de", "en", "en-US")
 # Thema-Module. Ohne das Plugin nimmt Qt sein eigenes Aussehen (betrifft nur den Dateidialog, das Fenster ist HTML).
 UNNOETIGE_PLUGINS = ("platformthemes/libqgtk3.so",)
 # Laufzeit von GCC aus dem Build-System (Ubuntu 22.04, GCC 12): PyInstaller setzt LD_LIBRARY_PATH auf _internal, so
-# ueberdeckten sie die neueren des Zielsystems. Vermutete Folge (CI an ca8133b, Beleg steht aus): Mesa 25 (Ubuntu
-# 24.04, Fedora 41) haengt ueber libgallium an libLLVM 19/20, das libstdc++ ab GCC 13 verlangt, und laedt nicht; Qt
-# brach mit "Could not initialize GLX" ab, obwohl glxinfo im selben Xvfb lief. Nur die oberste Ebene von _internal:
+# ueberdeckten sie die neueren des Zielsystems: Mesa 25 (Ubuntu 24.04, Fedora 41) haengt ueber libgallium an libLLVM
+# 19/20, das libstdc++ ab GCC 13 verlangt, und lud nicht; Qt brach mit "Could not initialize GLX" ab, obwohl glxinfo
+# im selben Xvfb lief (ca8133b). Ohne beide starten beide Systeme (aa19c03). Nur die oberste Ebene von _internal:
 # Kopien mit eigenem Namen tiefer im Paket (numpy.libs) werden unter genau diesem Namen gebraucht. Welche libstdc++
 # das Paket vom System verlangt, misst mindestversionen (glibcxx_max, Warnung ueber GLIBCXX_GRENZE).
 GCC_LAUFZEIT = ("libstdc++.so.6*", "libgcc_s.so.1*")

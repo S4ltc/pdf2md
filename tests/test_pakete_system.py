@@ -534,7 +534,7 @@ def test_fstring_pruefung_erkennt():
 # PATH stehen ausser ihnen nur Verweise auf die Grundwerkzeuge (WERKZEUGE_ECHT), so laesst sich auch ein Container
 # ohne ldd nachstellen. Der Nachbau von Qt verlangt libxcb-cursor.so.0 wie docs/LIESMICH.txt. Unter Windows Git Bash.
 BAUEN_YML = WURZEL / ".github" / "workflows" / "bauen.yml"
-WERKZEUGE_ECHT = ("bash", "cat", "grep", "head", "mkdir", "rm", "sed", "sleep", "sort", "tail", "tar", "touch", "xz")
+WERKZEUGE_ECHT = ("bash", "cat", "grep", "mkdir", "rm", "sed", "sleep", "sort", "tail", "tar", "touch", "xz")
 CURSOR_PAKETE = ("libxcb-cursor0", "xcb-util-cursor")   # liefern libxcb-cursor.so.0 (Debian/Ubuntu bzw. Fedora)
 NACHBAU = {
     "apt-get": r'''#!/bin/sh
@@ -576,27 +576,14 @@ printf '\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f0000000000)\n'
 ''',
     "python3": r'''#!/bin/sh
 if [ "$2" = starttest ]; then
-  echo "starttest $3${LIBGL_ALWAYS_SOFTWARE:+ LIBGL_ALWAYS_SOFTWARE=$LIBGL_ALWAYS_SOFTWARE}${QT_XCB_GL_INTEGRATION:+ QT_XCB_GL_INTEGRATION=$QT_XCB_GL_INTEGRATION}${QT_QUICK_BACKEND:+ QT_QUICK_BACKEND=$QT_QUICK_BACKEND}${QTWEBENGINE_CHROMIUM_FLAGS:+ QTWEBENGINE_CHROMIUM_FLAGS=$QTWEBENGINE_CHROMIUM_FLAGS}" >> "$SIM/aufrufe.log"
+  echo "starttest $3" >> "$SIM/aufrufe.log"
   ok=false
   if [ -e "$SIM/installiert/libxcb-cursor0" ] || [ -e "$SIM/installiert/xcb-util-cursor" ]; then ok=true; fi
-  if [ -n "$LIBGL_ALWAYS_SOFTWARE" ]; then ok=true; fi    # erfunden: so zeigt der Test, dass die Variante ankommt
   printf '{"ok": %s, "gui": "qt"}' "$ok" > starttest.json
   [ "$ok" = true ]
   exit
 fi
 exec "$ECHTES_PYTHON" "$@"
-''',
-    # Durchreicher: die Optionen von xvfb-run weg, dann das Programm (nur im Diagnoseschritt; starttest ist oben
-    # nachgebildet und ruft xvfb-run nie auf)
-    "xvfb-run": r'''#!/bin/sh
-while [ $# -gt 0 ]; do case "$1" in -a) shift ;; -s|-e) shift 2 ;; *) break ;; esac; done
-exec "$@"
-''',
-    # Ausgabe mit %, CR und mehreren Zeilen (Maskierung fuer GitHub); mit LD_LIBRARY_PATH erkennbar anders
-    "glxinfo": r'''#!/bin/sh
-printf 'name of display: :99\r\nOpenGL renderer string: llvmpipe 100 %%\n'
-[ -n "$LD_LIBRARY_PATH" ] && printf 'mit Paket: %s\n' "${LD_LIBRARY_PATH##*/}"
-exit 0
 ''',
 }
 
@@ -834,40 +821,6 @@ class TestDistributionen:
         hinweis = next(z for z in lauf["ausgabe"].splitlines() if "title=Fehlende Bibliotheken" in z)
         assert hinweis.count("nicht geprüft") == 3 and "ldd" not in hinweis
         assert len(stufen_ergebnisse(lauf["ausgabe"], "ubuntu-24.04")) == 3
-
-    @pytest.mark.langsam
-    def test_varianten_nur_nach_fehlschlag(self, distributionen, tmp_path):
-        """Ubuntu 24.04 und Fedora 41 brachen unter Xvfb mit "Could not initialize GLX" ab, Debian 12 nicht (CI an
-        0f40f21). Scheitert Stufe 3, laeuft der Start-Test zur Diagnose noch mit Umgebungsvarianten, je mit eigenem
-        Hinweis, dazu glxinfo. Der Job scheitert dadurch nicht."""
-        lauf = job_nachstellen(distributionen, eintrag(distributionen, "ubuntu-24.04"), tmp_path,
-                               unbekannt=["libxcb-cursor0"])
-        assert not lauf["gescheitert"], lauf["schritte"]
-        ordner = "entpackt/pdf2md-probe-linux-x86_64"
-        assert [a for a in lauf["aufrufe"] if a.startswith("starttest")] == [f"starttest {ordner}"] * 3 + [
-            f"starttest {ordner} LIBGL_ALWAYS_SOFTWARE=1", f"starttest {ordner} QT_XCB_GL_INTEGRATION=xcb_egl",
-            f"starttest {ordner} QT_XCB_GL_INTEGRATION=none",
-            f"starttest {ordner} QT_QUICK_BACKEND=software QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu"]
-        varianten = re.findall(r"::notice title=Start-Test linux ubuntu-24\.04 \(Variante ([^)]*)\)::(\S+)",
-                               lauf["ausgabe"])
-        assert varianten == [("LIBGL_ALWAYS_SOFTWARE=1", "OK"), ("QT_XCB_GL_INTEGRATION=xcb_egl", "FEHLER"),
-                             ("QT_XCB_GL_INTEGRATION=none", "FEHLER"),
-                             ("QT_QUICK_BACKEND=software QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu", "FEHLER")]
-        # glxinfo maskiert (%, Zeilenumbruch, kein CR), die Gegenprobe mit dem Bibliothekspfad des Pakets
-        assert ("::notice title=glxinfo linux ubuntu-24.04::name of display: :99%0AOpenGL renderer string: llvmpipe "
-                "100 %25\n") in lauf["ausgabe"]
-        assert "::notice title=glxinfo mit Paketbibliotheken linux ubuntu-24.04::" in lauf["ausgabe"]
-        assert "%0Amit Paket: _internal" in lauf["ausgabe"] and "\r" not in lauf["ausgabe"]
-        # ohne Mesa im Nachbau: ein Hinweis, dass keine Bibliothek gefunden wurde
-        assert "::notice title=Mesa mit Paketbibliotheken linux ubuntu-24.04::keine Mesa-Bibliothek gefunden" in \
-            lauf["ausgabe"]
-        assert [a for a in lauf["aufrufe"] if a.startswith("apt-get install") and a.endswith(" mesa-utils")]
-        assert dict(lauf["schritte"])["Varianten bei Fehlschlag (Diagnose GLX)"] == 0
-
-    def test_keine_varianten_wenn_stufe_3_laeuft(self, distributionen, tmp_path):
-        lauf = job_nachstellen(distributionen, eintrag(distributionen, "debian-12"), tmp_path)
-        assert "Variante" not in lauf["ausgabe"] and "glxinfo" not in lauf["ausgabe"]
-        assert not [a for a in lauf["aufrufe"] if "mesa-utils" in a]
 
     @pytest.mark.langsam
     def test_ohne_globstar_nicht_geprueft(self, distributionen, tmp_path):
